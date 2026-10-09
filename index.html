@@ -247,6 +247,12 @@
           <span class="hidden md:inline">Rankings</span>
         </button>
 
+        <!-- Clear Quiz Data Button -->
+        <button onclick="clearQuizData()" class="px-2.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold flex items-center gap-1 transition cursor-pointer" title="Clear all quiz progress data">
+          <i class="ph-bold ph-trash text-[11px]"></i>
+          <span class="hidden sm:inline">Clear Data</span>
+        </button>
+
         <!-- Admin Control Button: PERMANENTLY VISIBLE -->
         <button id="adminPortalBtn" type="button" onclick="handleAdminButtonClick()" class="flex px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 text-xs font-black items-center gap-1.5 shadow-md shadow-amber-500/20 transition cursor-pointer">
           <i class="ph-bold ph-shield-check text-base"></i>
@@ -573,9 +579,14 @@
       <div id="adminView-cases" class="adminSubView space-y-4">
         <div class="flex items-center justify-between">
           <h3 class="text-sm font-bold text-white">Repository of Medical Cases</h3>
-          <button onclick="switchAdminTab('create')" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs transition flex items-center gap-1 cursor-pointer">
-            <i class="ph-bold ph-plus"></i> Author New Case
-          </button>
+          <div class="flex items-center gap-2">
+            <button onclick="clearQuizData()" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-black rounded-xl text-xs transition flex items-center gap-1 cursor-pointer" title="Clear all quiz progress data">
+              <i class="ph-bold ph-trash"></i> Clear Quiz Data
+            </button>
+            <button onclick="switchAdminTab('create')" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs transition flex items-center gap-1 cursor-pointer">
+              <i class="ph-bold ph-plus"></i> Author New Case
+            </button>
+          </div>
         </div>
         <div id="adminCasesList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
       </div>
@@ -847,10 +858,16 @@
               </h3>
               <p class="text-xs text-slate-400 mt-0.5">Real-time answers, score, and rank progression stream from student phones.</p>
             </div>
-            <button onclick="broadcastEndCaseSignal()" class="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30 cursor-pointer">
-              <i class="ph-bold ph-stop-circle text-base"></i>
-              <span>End Case & Reveal Final Leaderboard</span>
-            </button>
+            <div class="flex items-center gap-2">
+              <button onclick="clearQuizData()" class="px-3 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30 cursor-pointer">
+                <i class="ph-bold ph-trash text-base"></i>
+                <span>Clear All Quiz Data</span>
+              </button>
+              <button onclick="broadcastEndCaseSignal()" class="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30 cursor-pointer">
+                <i class="ph-bold ph-stop-circle text-base"></i>
+                <span>End Case & Reveal Final Leaderboard</span>
+              </button>
+            </div>
           </div>
 
           <div class="overflow-x-auto">
@@ -1012,6 +1029,30 @@
       setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3500);
     }
 
+    function clearQuizData() {
+      if (confirm('This will clear ALL quiz progress data (live participants, coins, unlocked investigations, answers). Are you sure?')) {
+        localStorage.removeItem('aureus_live_participants');
+        localStorage.removeItem('aureus_active_case_id');
+        sessionStorage.removeItem('aureus_current_candidate');
+        sessionStorage.removeItem('aureus_is_admin');
+        state.liveParticipants = [];
+        state.activeCaseId = DEFAULT_CASES[0].id;
+        state.currentCandidate = null;
+        state.isAdmin = false;
+        state.coins = 500;
+        state.unlockedInvestigations = new Set();
+        state.mcqAnswer = null;
+        state.mcqSubmitted = false;
+        state.selectedManagement = new Set();
+        state.managementSubmitted = false;
+        state.startTime = Date.now();
+        state.finished = false;
+        saveLiveParticipants();
+        showToast('All quiz data cleared!', 'success');
+        location.reload();
+      }
+    }
+
     // =========================================================================
     // PEERJS REAL-TIME SYNC ENGINE
     // =========================================================================
@@ -1022,7 +1063,7 @@
 
     function initNetworking() {
       const urlParams = new URLSearchParams(window.location.search);
-      const isHostLaptop = urlParams.get('admin') === '1' || window.location.protocol === 'file:' || state.isAdmin;
+      const isHostLaptop = urlParams.get('admin') === '1' || state.isAdmin;
 
       if (isHostLaptop) initAsAdminHost();
       else initAsCandidateClient();
@@ -1568,17 +1609,21 @@
       checkCandidateCaseCompletion();
     }
 
-    function checkCandidateCaseCompletion() {
+function checkCandidateCaseCompletion() {
       if (state.mcqSubmitted && state.managementSubmitted) {
         state.finished = true;
         const totalDurationSec = Math.round((Date.now() - state.startTime) / 1000);
 
         document.getElementById('caseFinishedCard').classList.remove('hidden');
         document.getElementById('summaryCoinsDisplay').innerText = state.coins;
-        
+
         const isMcqCorrect = state.currentCaseShuffledMcq[state.mcqAnswer] && state.currentCaseShuffledMcq[state.mcqAnswer].isCorrect;
         const mcqScore = isMcqCorrect ? 50 : 0;
-        document.getElementById('summaryAccuracyDisplay').innerText = (mcqScore + 50) + '%';
+        const mgmtItems = state.currentCaseMgmtItems || [];
+        const totalCorrectMgmt = mgmtItems.filter(i => i.isCorrect).length;
+        const selectedCorrect = Array.from(state.selectedManagement).filter(idx => mgmtItems[idx] && mgmtItems[idx].isCorrect).length;
+        const mgmtScore = totalCorrectMgmt > 0 ? Math.round((selectedCorrect / totalCorrectMgmt) * 50) : 0;
+        document.getElementById('summaryAccuracyDisplay').innerText = (mcqScore + mgmtScore) + '%';
 
         syncCandidateLiveProgress(true, totalDurationSec);
         updateIndividualCandidateRank();
