@@ -1,0 +1,2121 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aureus Imperia • Elite Clinical Simulation & Quiz Arena</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Phosphor Icons for Clinical UI -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <!-- Tone.js for auditory feedback -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+  <!-- PeerJS for cross-device real-time sync -->
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            aureus: {
+              50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a', 300: '#fcd34d',
+              400: '#fbbf24', 500: '#f59e0b', 600: '#d97706', 700: '#b45309',
+              800: '#92400e', 900: '#78350f', gold: '#e6af2e', goldLight: '#f3c766'
+            },
+            clinical: {
+              dark: '#070b14', panel: '#0d1527', surface: '#131f38',
+              border: '#1e293b', red: '#f43f5e', emerald: '#10b981', amber: '#f59e0b'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['JetBrains Mono', 'Menlo', 'monospace']
+          }
+        }
+      }
+    };
+
+    // Default Whitelist
+    const DEFAULT_WHITELIST = [
+      { roll: '1', name: 'Dr. Sneha Reddy', batch: 'MBBS 2023' },
+      { roll: '2', name: 'Dr. Harish Kumar', batch: 'MBBS 2023' },
+      { roll: 'AUR-101', name: 'Dr. Aryan Mehta', batch: 'MBBS 2022' },
+      { roll: 'AUR-102', name: 'Dr. Zara Khan', batch: 'MBBS 2022' }
+    ];
+
+    // Built-in Default Simulation Case
+    const DEFAULT_CASES = [
+      {
+        id: 'case_stemi_01',
+        title: 'Case 1: Hyperacute Retrosternal Chest Pain',
+        triage: 'Red (Emergency)',
+        patient: {
+          name: 'Rajesh Sharma',
+          ageSex: '54 M',
+          occupation: 'School Principal • Non-smoker • NKDA',
+          chiefComplaint: 'Severe retrosternal crushing chest pain x 2.5 hours',
+          hopi: 'Patient experienced sudden-onset crushing central chest pain radiating to left shoulder and jaw while sitting at desk. Rated 9/10. Associated with severe diaphoresis, nausea, and air hunger. No relief with antacids.',
+          pastHistory: 'Type 2 Diabetes Mellitus x 8 years, Essential Hypertension x 12 years. No previous MI, PCI, or CABG.',
+          meds: 'Metformin 500mg BD, Telmisartan 40mg OD. NKDA.',
+          imageUrl: ''
+        },
+        vitals: [
+          { label: 'Blood Pressure', val: '86/56 mmHg', status: 'critical', desc: 'Hypotensive / Pre-shock' },
+          { label: 'Heart Rate', val: '112 bpm', status: 'warning', desc: 'Sinus Tachycardia' },
+          { label: 'SpO2', val: '93% (RA)', status: 'warning', desc: 'Mild Hypoxemia' },
+          { label: 'Resp Rate', val: '24 / min', status: 'warning', desc: 'Tachypneic' },
+          { label: 'Temperature', val: '98.4 °F', status: 'normal', desc: 'Afebrile' }
+        ],
+        examination: [
+          { system: 'General Survey', text: 'Diaphoretic, pale, Levine sign positive. Cold and clammy peripheries.' },
+          { system: 'Cardiovascular (CVS)', text: 'S1, S2 audible, soft S4 gallop audible at cardiac apex. JVP elevated 4cm above sternal angle.' },
+          { system: 'Respiratory (RS)', text: 'Bilateral basal inspiratory crackles (Killip Class II). No bronchospasm.' },
+          { system: 'Abdomen & CNS', text: 'Abdomen soft, non-tender. Oriented to time, place, and person; highly anxious.' }
+        ],
+        investigations: [
+          {
+            id: 'ecg_12lead',
+            name: '12-Lead Electrocardiogram (ECG)',
+            badge: 'Urgent Stat',
+            cost: 15,
+            svgType: 'ecg_stemi',
+            imageUrl: '',
+            summary: 'Marked convex-upward ST segment elevations (>2.5 mm) in leads V1-V4 with reciprocal ST depressions in inferior leads (II, III, aVF).',
+            impression: 'Acute Extensive Anterior ST-Elevation Myocardial Infarction (STEMI).'
+          },
+          {
+            id: 'hs_troponin',
+            name: 'High-Sensitivity Troponin I (hs-cTnI)',
+            badge: 'Cardiac Biomarker',
+            cost: 15,
+            svgType: null,
+            imageUrl: '',
+            summary: 'Serum hs-cTnI: 4,920 ng/L (Normal reference < 14 ng/L). Marked elevation with steep delta.',
+            impression: 'Massive acute myocardial necrosis in keeping with coronary occlusion.'
+          }
+        ],
+        mcq: {
+          question: 'What is the most definitive clinical diagnosis?',
+          options: [
+            'Acute Extensive Anterior STEMI (Killip Class II)',
+            'Acute Massive Pulmonary Embolism',
+            'Stanford Type A Acute Aortic Dissection',
+            'Acute Viral Pericarditis'
+          ],
+          correctIndex: 0,
+          explanation: 'Crushing chest pain radiating to jaw, V1-V4 tombstone ST elevation with reciprocal inferior depressions, markedly elevated hs-Troponin I, and basal crackles indicate Anterior STEMI with Killip II failure.'
+        },
+        management: [
+          { text: 'Aspirin 325mg chewed + Ticagrelor 180mg loading dose (DAPT)', isCorrect: true },
+          { text: 'Immediate cardiac catheterization laboratory activation for primary PCI', isCorrect: true },
+          { text: 'Unfractionated Heparin (UFH) weight-adjusted bolus', isCorrect: true },
+          { text: 'Careful supplemental O2 titrated strictly to maintain SpO2 94-98%', isCorrect: true },
+          { text: 'Sublingual Nitroglycerin spray and IV Beta-blockers immediately', isCorrect: false },
+          { text: 'Routine empiric high-dose loop diuretics bolus without checking BP', isCorrect: false }
+        ],
+        managementExplanation: 'Primary PCI is standard of care. Because the patient is hypotensive (BP 86/56), nitrates and beta-blockers are strictly contraindicated.'
+      }
+    ];
+
+    // Global State
+    let state = {
+      cases: JSON.parse(localStorage.getItem('aureus_cases')) || DEFAULT_CASES,
+      whitelist: JSON.parse(localStorage.getItem('aureus_whitelist')) || DEFAULT_WHITELIST,
+      activeCaseId: localStorage.getItem('aureus_active_case_id') || DEFAULT_CASES[0].id,
+      currentCandidate: JSON.parse(sessionStorage.getItem('aureus_current_candidate')) || null,
+      isAdmin: sessionStorage.getItem('aureus_is_admin') === 'true',
+      coins: 500,
+      unlockedInvestigations: new Set(),
+      mcqAnswer: null,
+      mcqSubmitted: false,
+      selectedManagement: new Set(),
+      managementSubmitted: false,
+      startTime: Date.now(),
+      finished: false,
+      liveParticipants: JSON.parse(localStorage.getItem('aureus_live_participants')) || []
+    };
+
+    function toggleModal(modalId, show) {
+      const el = document.getElementById(modalId);
+      if (!el) return;
+      if (show) el.classList.remove('hidden');
+      else el.classList.add('hidden');
+    }
+
+    function handleAdminButtonClick() {
+      if (state.isAdmin) {
+        showAdminDashboard();
+      } else {
+        toggleModal('adminLoginModal', true);
+      }
+    }
+
+    function handleAdminLoginSubmit(e) {
+      if (e) e.preventDefault();
+      const pin = document.getElementById('adminPinInput').value.trim();
+      if (pin === 'poominathan' || pin === 'admin') {
+        state.isAdmin = true;
+        sessionStorage.setItem('aureus_is_admin', 'true');
+        toggleModal('adminLoginModal', false);
+        showToast('Admin clearance granted.', 'success');
+        showAdminDashboard();
+      } else {
+        showToast('Incorrect Passcode.', 'error');
+      }
+    }
+  </script>
+
+  <style>
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #070b14; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #d97706; }
+    .ecg-grid {
+      background-color: #040810;
+      background-size: 8px 8px, 8px 8px, 40px 40px, 40px 40px;
+      background-image: 
+        linear-gradient(to right, rgba(244, 63, 94, 0.08) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(244, 63, 94, 0.08) 1px, transparent 1px),
+        linear-gradient(to right, rgba(244, 63, 94, 0.22) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(244, 63, 94, 0.22) 1px, transparent 1px);
+    }
+    .shimmer-gold {
+      background: linear-gradient(90deg, #f59e0b 0%, #fef08a 50%, #f59e0b 100%);
+      background-size: 200% auto;
+      color: transparent;
+      -webkit-background-clip: text;
+      animation: shine 3s linear infinite;
+    }
+    @keyframes shine { to { background-position: 200% center; } }
+    .pulse-glow { box-shadow: 0 0 15px rgba(245, 158, 11, 0.25); }
+  </style>
+</head>
+<body class="bg-clinical-dark text-slate-100 min-h-screen flex flex-col font-sans antialiased selection:bg-aureus-500 selection:text-black">
+
+  <!-- TOP HEADER -->
+  <header class="sticky top-0 z-40 bg-clinical-panel/95 backdrop-blur-md border-b border-clinical-border shadow-xl px-4 py-2.5">
+    <div class="max-w-7xl mx-auto flex items-center justify-between gap-3">
+      
+      <!-- Brand & Active Session -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-600 via-amber-400 to-cyan-400 flex items-center justify-center shadow-lg shadow-amber-500/20 text-slate-950 font-black text-xl">
+          <i class="ph-bold ph-dna"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-extrabold text-lg tracking-tight shimmer-gold">AUREUS IMPERIA</span>
+            <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase tracking-widest">Medical Sim</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs text-slate-400">
+            <span class="flex items-center gap-1">
+              <span id="networkPulse" class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+              <span id="activeCaseBadgeTitle" class="text-slate-300 font-medium truncate max-w-[130px] sm:max-w-[240px]">Loading Case...</span>
+            </span>
+            <span class="text-slate-600">•</span>
+            <span id="networkStatusText" class="text-[11px] text-cyan-400 font-mono">Syncing...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Header Actions -->
+      <div class="flex items-center gap-2 sm:gap-3">
+        
+        <!-- Candidate Profile & Rank Badge -->
+        <div id="candidateHeaderBlock" class="hidden sm:flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-clinical-surface border border-clinical-border text-xs">
+          <div class="w-2 h-2 rounded-full bg-emerald-400"></div>
+          <div>
+            <div id="userHeaderName" class="font-bold text-white leading-none">Not Logged In</div>
+            <div id="userHeaderRoll" class="text-[10px] text-amber-400/90 font-mono mt-0.5">--</div>
+          </div>
+          <div id="userHeaderRankBadge" class="ml-1 px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono font-bold text-[10px]">
+            Rank: --
+          </div>
+        </div>
+
+        <!-- Coin Balance Counter -->
+        <div id="coinsWidget" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 font-bold text-xs sm:text-sm">
+          <i class="ph-fill ph-coins text-amber-400 text-base"></i>
+          <span id="walletCoins">500</span>
+          <span class="text-[10px] uppercase font-bold text-amber-500 hidden sm:inline">Coins</span>
+        </div>
+
+        <!-- Rankings / Leaderboard Button -->
+        <button onclick="openLeaderboardModal()" class="px-2.5 py-2 rounded-xl bg-clinical-surface hover:bg-slate-800 text-slate-200 border border-clinical-border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer">
+          <i class="ph-bold ph-trophy text-amber-400 text-base"></i>
+          <span class="hidden md:inline">Rankings</span>
+        </button>
+
+        <!-- Admin Control Button: PERMANENTLY VISIBLE -->
+        <button id="adminPortalBtn" type="button" onclick="handleAdminButtonClick()" class="flex px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 text-xs font-black items-center gap-1.5 shadow-md shadow-amber-500/20 transition cursor-pointer">
+          <i class="ph-bold ph-shield-check text-base"></i>
+          <span id="adminBtnLabel">Admin Control</span>
+        </button>
+
+      </div>
+    </div>
+  </header>
+
+  <div id="toastContainer" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- MAIN BODY -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 flex flex-col gap-4">
+
+    <!-- Candidate Gate -->
+    <div id="candidateLoginWall" class="bg-gradient-to-br from-clinical-panel via-clinical-surface to-slate-900 border border-amber-500/30 rounded-2xl p-6 sm:p-8 text-center shadow-2xl relative overflow-hidden">
+      <div class="max-w-md mx-auto space-y-4">
+        <div class="w-16 h-16 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-3xl">
+          <i class="ph-bold ph-user-check"></i>
+        </div>
+        <h2 class="text-2xl font-black text-white tracking-tight">Candidate Verification Portal</h2>
+        <p class="text-xs text-slate-400 leading-relaxed">
+          Welcome to <span class="text-amber-400 font-bold">Aureus Imperia</span>. Only pre-whitelisted candidates authorized by the Quiz Master may access the live simulation case and submit answers.
+        </p>
+        
+        <form onsubmit="handleCandidateLogin(event)" class="space-y-3 pt-2 text-left">
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">Candidate Roll Number / ID <span class="text-rose-400">*</span></label>
+            <input id="inputCandidateRoll" required type="text" placeholder="e.g. 1, 2, AUR-101" class="w-full bg-clinical-dark border border-clinical-border focus:border-amber-500 text-white rounded-xl px-3.5 py-2.5 text-sm focus:outline-none transition uppercase font-mono" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">Full Doctor / Student Name <span class="text-rose-400">*</span></label>
+            <input id="inputCandidateName" required type="text" placeholder="e.g. Dr. Harish Kumar" class="w-full bg-clinical-dark border border-clinical-border focus:border-amber-500 text-white rounded-xl px-3.5 py-2.5 text-sm focus:outline-none transition" />
+          </div>
+          <button type="submit" class="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm rounded-xl shadow-lg shadow-amber-500/20 transition flex items-center justify-center gap-2">
+            <i class="ph-bold ph-sign-in text-lg"></i>
+            <span>Authenticate & Enter Arena</span>
+          </button>
+        </form>
+
+        <p class="text-[11px] text-slate-500">
+          Not whitelisted yet? Contact your Quiz Master to add your Roll Number.
+        </p>
+      </div>
+    </div>
+
+    <!-- Candidate Active Quiz Simulation Container -->
+    <div id="quizSimulationArea" class="hidden flex-1 flex flex-col gap-4">
+      <div class="bg-clinical-panel border border-clinical-border rounded-2xl p-1.5 backdrop-blur-sm">
+        <div class="grid grid-cols-4 gap-1 text-center font-medium text-xs">
+          <button id="stepBtn-1" onclick="goToStep(1)" class="py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 font-bold shadow-md">
+            <i class="ph-bold ph-identification-badge text-base"></i>
+            <span class="hidden sm:inline">1. Presentation</span><span class="sm:hidden">History</span>
+          </button>
+          <button id="stepBtn-2" onclick="goToStep(2)" class="py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition text-slate-400 hover:text-white hover:bg-clinical-surface">
+            <i class="ph-bold ph-heartbeat text-base"></i>
+            <span class="hidden sm:inline">2. Examination</span><span class="sm:hidden">Vitals</span>
+          </button>
+          <button id="stepBtn-3" onclick="goToStep(3)" class="py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition text-slate-400 hover:text-white hover:bg-clinical-surface relative">
+            <i class="ph-bold ph-flask text-base"></i>
+            <span class="hidden sm:inline">3. Diagnostic Lab</span><span class="sm:hidden">Labs</span>
+            <span id="labBadgeDot" class="hidden w-2 h-2 rounded-full bg-cyan-400 absolute top-2 right-3"></span>
+          </button>
+          <button id="stepBtn-4" onclick="goToStep(4)" class="py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition text-slate-400 hover:text-white hover:bg-clinical-surface">
+            <i class="ph-bold ph-check-square-offset text-base"></i>
+            <span class="hidden sm:inline">4. Diagnosis & Rx</span><span class="sm:hidden">Quiz</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- STEP 1: PRESENTATION -->
+      <section id="viewStep1" class="stepView flex flex-col gap-4">
+        <div class="bg-clinical-panel border border-clinical-border rounded-2xl p-5 shadow-xl">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-clinical-border pb-4">
+            <div class="flex items-center gap-3.5">
+              <div class="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-2xl font-bold">
+                <i class="ph-bold ph-user"></i>
+              </div>
+              <div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <h2 id="patientNameDisplay" class="text-xl font-bold text-white tracking-tight">Patient Name</h2>
+                  <span id="patientDemographicsDisplay" class="text-xs px-2.5 py-0.5 rounded-full bg-clinical-surface border border-clinical-border text-slate-300 font-mono font-medium">--</span>
+                  <span id="patientTriageDisplay" class="text-xs px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold uppercase tracking-wider">Triage Level</span>
+                </div>
+                <p id="patientOccupationDisplay" class="text-xs text-slate-400 mt-1">Occupation & Background</p>
+              </div>
+            </div>
+            <div class="bg-rose-950/40 border border-rose-500/30 rounded-xl px-4 py-2.5 text-left md:text-right">
+              <div class="text-[10px] font-bold uppercase tracking-wider text-rose-400">Chief Complaint</div>
+              <div id="patientComplaintDisplay" class="font-bold text-sm text-rose-200 mt-0.5">--</div>
+            </div>
+          </div>
+
+          <!-- Clinical Picture -->
+          <div id="patientPhotoWrapper" class="hidden mt-4 rounded-xl overflow-hidden border border-clinical-border max-w-md mx-auto">
+            <img id="patientPhotoDisplay" src="" alt="Clinical Finding" class="w-full max-h-64 object-contain bg-black" />
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+            <div class="bg-clinical-dark/60 border border-clinical-border rounded-xl p-4">
+              <div class="flex items-center gap-2 text-amber-400 font-semibold text-xs uppercase tracking-wider mb-2">
+                <i class="ph-bold ph-clock-counter-clockwise text-base"></i>
+                <span>History of Presenting Illness (HOPI)</span>
+              </div>
+              <p id="patientHopiDisplay" class="text-xs sm:text-sm text-slate-300 leading-relaxed">--</p>
+            </div>
+            <div class="space-y-4">
+              <div class="bg-clinical-dark/60 border border-clinical-border rounded-xl p-4">
+                <div class="flex items-center gap-2 text-cyan-400 font-semibold text-xs uppercase tracking-wider mb-1.5">
+                  <i class="ph-bold ph-first-aid-kit text-base"></i>
+                  <span>Past Medical & Surgical History</span>
+                </div>
+                <p id="patientPastHistoryDisplay" class="text-xs sm:text-sm text-slate-300">--</p>
+              </div>
+              <div class="bg-clinical-dark/60 border border-clinical-border rounded-xl p-4">
+                <div class="flex items-center gap-2 text-emerald-400 font-semibold text-xs uppercase tracking-wider mb-1.5">
+                  <i class="ph-bold ph-pill text-base"></i>
+                  <span>Medications, Allergies & Social History</span>
+                </div>
+                <p id="patientMedsDisplay" class="text-xs sm:text-sm text-slate-300">--</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-6 flex justify-end">
+            <button onclick="goToStep(2)" class="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-amber-500/20 transition">
+              <span>Proceed to Clinical Examination</span>
+              <i class="ph-bold ph-arrow-right"></i>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- STEP 2: EXAMINATION -->
+      <section id="viewStep2" class="stepView hidden flex flex-col gap-4">
+        <div class="bg-clinical-panel border border-clinical-border rounded-2xl p-5 shadow-xl">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-base font-bold text-white flex items-center gap-2">
+              <i class="ph-bold ph-activity text-rose-500 text-xl"></i>
+              <span>Emergency Bedside Monitoring & Vitals</span>
+            </h3>
+            <span class="text-xs bg-clinical-surface text-slate-300 px-3 py-1 rounded-full border border-clinical-border font-mono">Admission Triage</span>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3" id="vitalsCardsContainer"></div>
+
+          <div class="mt-6 border-t border-clinical-border pt-5">
+            <h4 class="text-sm font-bold text-slate-200 mb-3 flex items-center gap-2">
+              <i class="ph-bold ph-stethoscope text-amber-400"></i>
+              <span>Systemic Physical Examination Findings</span>
+            </h4>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3" id="systemicExamContainer"></div>
+          </div>
+
+          <div class="mt-6 flex justify-between items-center">
+            <button onclick="goToStep(1)" class="px-4 py-2 bg-clinical-surface hover:bg-slate-800 text-slate-300 border border-clinical-border rounded-xl text-xs font-semibold transition">&larr; Back to Presentation</button>
+            <button onclick="goToStep(3)" class="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-amber-500/20 transition">
+              <span>Open Investigation Lab</span>
+              <i class="ph-bold ph-arrow-right"></i>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- STEP 3: LABS & IMAGING SUITE -->
+      <section id="viewStep3" class="stepView hidden flex flex-col gap-4">
+        <div class="bg-gradient-to-r from-clinical-panel via-clinical-surface to-slate-900 border border-clinical-border rounded-2xl p-4 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div>
+            <h3 class="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+              <i class="ph-bold ph-flask text-cyan-400 text-xl"></i>
+              <span>Diagnostic Workup & Imaging Suite</span>
+            </h3>
+            <p class="text-xs text-slate-400 mt-0.5">
+              Select key investigations. Each unlocked test costs <span class="text-amber-400 font-bold">-15 Coins</span>.
+            </p>
+          </div>
+          <div class="text-right">
+            <span class="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Candidate Wallet</span>
+            <span id="labWalletDisplay" class="text-base font-extrabold text-amber-400">500 Coins</span>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <div class="lg:col-span-5 flex flex-col gap-2.5">
+            <div class="flex items-center justify-between px-1">
+              <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Available Diagnostic Modalities</span>
+              <span id="unlockedTestsCounter" class="text-[11px] font-mono text-cyan-400">0 / 0 Unlocked</span>
+            </div>
+            <div id="investigationsListContainer" class="space-y-2 max-h-[560px] overflow-y-auto pr-1"></div>
+          </div>
+
+          <div class="lg:col-span-7 bg-clinical-panel border border-clinical-border rounded-2xl p-4 flex flex-col min-h-[460px]">
+            <div class="flex items-center justify-between border-b border-clinical-border pb-3">
+              <div class="flex items-center gap-2">
+                <i class="ph-bold ph-file-magnifying-glass text-cyan-400 text-lg"></i>
+                <h4 id="reportHeaderTitle" class="font-bold text-sm text-white">Select an unlocked test to view interpretation</h4>
+              </div>
+              <span id="reportHeaderBadge" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">Standby</span>
+            </div>
+            <div id="reportDisplayBody" class="flex-1 flex flex-col items-center justify-center text-center p-6 text-slate-400">
+              <div class="w-16 h-16 rounded-2xl bg-clinical-surface border border-clinical-border flex items-center justify-center text-3xl text-slate-600 mb-3">
+                <i class="ph-bold ph-microscope"></i>
+              </div>
+              <p class="text-sm font-semibold text-slate-300">Diagnostic Console Idle</p>
+              <p class="text-xs text-slate-500 max-w-sm mt-1">Unlock an investigation on the left to review radiology images, clinical tracings, or lab values.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-2 flex justify-between items-center">
+          <button onclick="goToStep(2)" class="px-4 py-2 bg-clinical-surface hover:bg-slate-800 text-slate-300 border border-clinical-border rounded-xl text-xs font-semibold transition">&larr; Back to Examination</button>
+          <button onclick="goToStep(4)" class="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-amber-500/20 transition">
+            <span>Proceed to Diagnosis & Management</span>
+            <i class="ph-bold ph-arrow-right"></i>
+          </button>
+        </div>
+      </section>
+
+      <!-- STEP 4: QUIZ -->
+      <section id="viewStep4" class="stepView hidden flex flex-col gap-5">
+        <div class="bg-clinical-panel border border-clinical-border rounded-2xl p-5 shadow-xl">
+          <div class="flex items-center justify-between mb-3 border-b border-clinical-border pb-3">
+            <div>
+              <span class="text-[10px] font-bold uppercase tracking-wider text-cyan-400">Section A: Diagnostic Acuity</span>
+              <h3 id="mcqQuestionTitle" class="text-sm sm:text-base font-bold text-white mt-0.5">What is the definitive provisional diagnosis?</h3>
+            </div>
+            <span class="px-2.5 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 font-black text-xs">+100 Coins</span>
+          </div>
+          <div id="mcqOptionsContainer" class="grid grid-cols-1 gap-2.5"></div>
+          <div id="mcqFeedbackBlock" class="hidden mt-4 p-4 rounded-xl text-xs leading-relaxed"></div>
+        </div>
+
+        <div class="bg-clinical-panel border border-clinical-border rounded-2xl p-5 shadow-xl">
+          <div class="flex items-center justify-between mb-3 border-b border-clinical-border pb-3">
+            <div>
+              <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Section B: Guideline Management Protocol</span>
+              <h3 class="text-sm sm:text-base font-bold text-white mt-0.5">Select all appropriate immediate interventions:</h3>
+            </div>
+            <span class="px-2.5 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 font-black text-xs">+100 Coins</span>
+          </div>
+          <div id="managementChecklistContainer" class="grid grid-cols-1 md:grid-cols-2 gap-2.5"></div>
+          <div class="mt-4 pt-3 border-t border-clinical-border flex flex-col sm:flex-row items-center justify-between gap-3">
+            <span id="selectedInterventionsCounter" class="text-xs text-slate-400">0 interventions selected</span>
+            <button id="btnSubmitManagement" onclick="evaluateCandidateManagement()" class="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs sm:text-sm shadow-lg shadow-emerald-600/30 transition cursor-pointer">
+              Verify Management Plan
+            </button>
+          </div>
+          <div id="managementFeedbackBlock" class="hidden mt-4 p-4 rounded-xl text-xs leading-relaxed"></div>
+        </div>
+
+        <div id="caseFinishedCard" class="hidden bg-gradient-to-r from-clinical-panel via-slate-900 to-clinical-surface border border-amber-500/50 rounded-2xl p-6 text-center shadow-2xl pulse-glow">
+          <div class="w-16 h-16 mx-auto rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center text-3xl mb-3">
+            <i class="ph-bold ph-trophy"></i>
+          </div>
+          <h2 class="text-2xl font-black text-white">Case Completed!</h2>
+          <p class="text-xs sm:text-sm text-slate-300 mt-1 max-w-lg mx-auto">
+            Your simulation results and ranking have been recorded live.
+          </p>
+          <div class="flex items-center justify-center gap-6 my-6">
+            <div>
+              <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Final Coins</span>
+              <div id="summaryCoinsDisplay" class="text-2xl font-black text-amber-400 mt-0.5">500</div>
+            </div>
+            <div class="w-px h-8 bg-clinical-border"></div>
+            <div>
+              <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Your Live Rank</span>
+              <div id="summaryRankDisplay" class="text-2xl font-black text-cyan-400 mt-0.5">#--</div>
+            </div>
+            <div class="w-px h-8 bg-clinical-border"></div>
+            <div>
+              <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Accuracy</span>
+              <div id="summaryAccuracyDisplay" class="text-2xl font-black text-emerald-400 mt-0.5">100%</div>
+            </div>
+          </div>
+          <button onclick="openLeaderboardModal()" class="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black rounded-xl text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition cursor-pointer">
+            View Live Room Podium
+          </button>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- ADMIN CONTROL CENTER VIEW -->
+    <div id="adminDashboardArea" class="hidden flex-1 flex flex-col gap-5">
+      <div class="bg-gradient-to-r from-amber-950/60 via-clinical-panel to-slate-900 border border-amber-500/40 rounded-2xl p-5 shadow-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div class="flex items-center gap-3.5">
+          <div class="w-12 h-12 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center text-2xl font-bold">
+            <i class="ph-bold ph-crown"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h2 class="text-lg font-bold text-white">Quiz Master Admin Portal</h2>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">Master Host</span>
+            </div>
+            <p class="text-xs text-slate-400 mt-0.5">
+              Live Connected Candidates: <span id="adminConnectedCount" class="text-emerald-400 font-bold font-mono text-sm">0</span>
+            </p>
+          </div>
+        </div>
+
+        <button onclick="exitAdminView()" class="px-3.5 py-2 bg-clinical-surface hover:bg-slate-800 text-slate-300 border border-clinical-border rounded-xl text-xs font-semibold transition cursor-pointer">
+          Exit Admin View
+        </button>
+      </div>
+
+      <!-- ADMIN TABS NAVIGATION -->
+      <div class="flex border-b border-clinical-border gap-2 text-xs font-semibold">
+        <button id="adminTabBtn-cases" onclick="switchAdminTab('cases')" class="px-4 py-2 border-b-2 border-amber-500 text-amber-400">
+          <i class="ph-bold ph-folder-notch-open mr-1"></i> Cases & Broadcast
+        </button>
+        <button id="adminTabBtn-create" onclick="switchAdminTab('create')" class="px-4 py-2 border-b-2 border-transparent text-slate-400 hover:text-white">
+          <i class="ph-bold ph-plus-circle mr-1"></i> New Case Creator (CRUD)
+        </button>
+        <button id="adminTabBtn-roster" onclick="switchAdminTab('roster')" class="px-4 py-2 border-b-2 border-transparent text-slate-400 hover:text-white">
+          <i class="ph-bold ph-users-three mr-1"></i> Allowed Candidate Whitelist
+        </button>
+        <button id="adminTabBtn-liveMonitor" onclick="switchAdminTab('liveMonitor')" class="px-4 py-2 border-b-2 border-transparent text-slate-400 hover:text-white">
+          <i class="ph-bold ph-pulse mr-1"></i> Live Arena Monitor
+        </button>
+      </div>
+
+      <!-- ADMIN TAB 1: CASES REPOSITORY -->
+      <div id="adminView-cases" class="adminSubView space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-bold text-white">Repository of Medical Cases</h3>
+          <button onclick="switchAdminTab('create')" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs transition flex items-center gap-1 cursor-pointer">
+            <i class="ph-bold ph-plus"></i> Author New Case
+          </button>
+        </div>
+        <div id="adminCasesList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+      </div>
+
+      <!-- ADMIN TAB 2: COMPREHENSIVE CASE CREATOR (CRUD) -->
+      <div id="adminView-create" class="adminSubView hidden bg-clinical-panel border border-clinical-border rounded-2xl p-5 sm:p-6 shadow-xl space-y-5">
+        <div class="border-b border-clinical-border pb-3">
+          <h3 class="text-base font-bold text-white flex items-center gap-2">
+            <i class="ph-bold ph-note-pencil text-amber-400 text-lg"></i>
+            <span>Clinical Case Simulation Authoring Suite</span>
+          </h3>
+          <p class="text-xs text-slate-400 mt-1">Configure full presentation, vitals, investigation scans, choose the correct MCQ diagnosis, and designate correct vs harmful management options.</p>
+        </div>
+
+        <form id="authorCaseForm" onsubmit="handleAuthorCaseSubmit(event)" class="space-y-6 text-xs">
+          
+          <!-- Basic Case Info & Patient Demographics -->
+          <div class="space-y-3">
+            <div class="text-xs font-bold uppercase tracking-wider text-amber-400">1. Case Overview & Patient Identity</div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div class="sm:col-span-2">
+                <label class="block font-semibold text-slate-300 mb-1">Case Title <span class="text-rose-400">*</span></label>
+                <input id="formCaseTitle" required placeholder="e.g. Acute Epigastric Pain in Young Adult" class="w-full bg-clinical-dark border border-clinical-border rounded-xl p-2.5 text-white focus:border-amber-500 focus:outline-none" />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-300 mb-1">Triage Classification</label>
+                <select id="formCaseTriage" class="w-full bg-clinical-dark border border-clinical-border rounded-xl p-2.5 text-white focus:border-amber-500 focus:outline-none">
+                  <option value="Red (Emergency)">Red (Resuscitation / Emergency)</option>
+                  <option value="Yellow (Urgent)" selected>Yellow (Urgent)</option>
+                  <option value="Green (Non-Urgent)">Green (Stable / Non-Urgent)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label class="block font-semibold text-slate-300 mb-1">Patient Name <span class="text-rose-400">*</span></label>
+                <input id="formPatientName" required placeholder="e.g. Anandita Verma" class="w-full bg-clinical-dark border border-clinical-border rounded-xl p-2.5 text-white focus:border-amber-500 focus:outline-none" />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-300 mb-1">Age & Sex</label>
+                <input id="formPatientAgeSex" required placeholder="e.g. 28 F" class="w-full bg-clinical-dark border border-clinical-border rounded-xl p-2.5 text-white focus:border-amber-500 focus:outline-none" />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-300 mb-1">Occupation / Background</label>
+                <input id="formPatientOccupation" placeholder="e.g. Software Engineer • No known allergies" class="w-full bg-clinical-dark border border-clinical-border rounded-xl p-2.5 text-white focus:border-amber-500 focus:outline-none" />
+              </div>
+            </div>
+
+            <!-- Patient Clinical Image -->
+            <div class="bg-clinical-dark/60 border border-clinical-border rounded-xl p-3 space-y-2">
+              <label class="block font-semibold text-amber-400">Clinical / Patient Photo (Optional Visual)</label>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+                <div>
+                  <span class="text-[10px] text-slate-400 block mb-1">Upload image file from device:</span>
+                  <input type="file" accept="image/*" id="formPatientImageFile" onchange="handlePatientImageUpload(event)" class="text-xs text-slate-300 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:bg-clinical-surface file:text-amber-400 hover:file:bg-slate-700" />
+                </div>
+                <div>
+                  <span class="text-[10px] text-slate-400 block mb-1">Or paste image URL:</span>
+                  <input id="formPatientImageUrl" placeholder="https://example.com/patient-photo.jpg" class="w-full bg-clinical-panel border border-clinical-border rounded-lg p-1.5 text-white text-xs" />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label class="block font-semibold text-slate-300 mb-1">Chief Complaint <span class="text-rose-400">*</span></label>
+              <input id="formChiefComplaint" required placeholder="e.g. Severe radiating abdominal pain x 12 hours" class="w-full bg-clinical-dark border border-clinical-border rounded-xl p-2.5 text-white focus:border-amber-500 focus:outline-none" />
+            </div>
+
+            <div>
+              <label class="block font-semibold text-slate-300 mb-1">History of Presenting Illness (HOPI) <span class="text-rose-400">*</span></label>
+              <textarea id="formHopi" rows="2" required placeholder="Describe onset, character, radiation, relieving/aggravating factors, vomiting, fever..." class="w-full bg-clinical-dark border border-clinical-border rounded-xl p-2.5 text-white focus:border-amber-500 focus:outline-none"></textarea>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block font-semibold text-slate-300 mb-1">Past History</label>
+                <input id="formPastHistory" placeholder="e.g. Cholelithiasis diagnosed 2 months ago; no prior surgeries" class="w-full bg-clinical-dark border border-clinical-border rounded-xl p-2.5 text-white focus:border-amber-500 focus:outline-none" />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-300 mb-1">Current Medications / Allergies</label>
+                <input id="formMeds" placeholder="e.g. Antacids PRN. NKDA." class="w-full bg-clinical-dark border border-clinical-border rounded-xl p-2.5 text-white focus:border-amber-500 focus:outline-none" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Admission Bedside Vitals -->
+          <div class="space-y-3 pt-3 border-t border-clinical-border">
+            <div class="text-xs font-bold uppercase tracking-wider text-rose-400">2. Emergency Bedside Vitals</div>
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div>
+                <label class="block font-semibold text-slate-400 mb-1">BP (mmHg)</label>
+                <input id="formVitalBP" value="110/70" class="w-full bg-clinical-dark border border-clinical-border rounded-lg p-2 text-white" />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-400 mb-1">Heart Rate (bpm)</label>
+                <input id="formVitalHR" value="108 bpm" class="w-full bg-clinical-dark border border-clinical-border rounded-lg p-2 text-white" />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-400 mb-1">SpO2 (%)</label>
+                <input id="formVitalSpO2" value="98%" class="w-full bg-clinical-dark border border-clinical-border rounded-lg p-2 text-white" />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-400 mb-1">Respiratory Rate</label>
+                <input id="formVitalRR" value="22/min" class="w-full bg-clinical-dark border border-clinical-border rounded-lg p-2 text-white" />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-400 mb-1">Temperature</label>
+                <input id="formVitalTemp" value="100.4 °F" class="w-full bg-clinical-dark border border-clinical-border rounded-lg p-2 text-white" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Physical & Systemic Examination -->
+          <div class="space-y-3 pt-3 border-t border-clinical-border">
+            <div class="text-xs font-bold uppercase tracking-wider text-cyan-400">3. Physical & Systemic Examination</div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block font-semibold text-slate-400 mb-1">General Survey</label>
+                <input id="formExamGeneral" value="Patient in distress, leaning forward to mitigate pain, mild dehydration" class="w-full bg-clinical-dark border border-clinical-border rounded-lg p-2 text-white" />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-400 mb-1">System-Specific Findings</label>
+                <input id="formExamSystemic" value="Epigastric tenderness with localized guarding; Cullen / Grey Turner sign absent; bowel sounds sluggish" class="w-full bg-clinical-dark border border-clinical-border rounded-lg p-2 text-white" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Investigations Laboratory Setup with Image Uploads -->
+          <div class="space-y-3 pt-3 border-t border-clinical-border">
+            <div class="flex items-center justify-between">
+              <div class="text-xs font-bold uppercase tracking-wider text-amber-400">4. Diagnostic Laboratory & Imaging</div>
+              <button type="button" onclick="addAuthorInvestigationRow()" class="px-2.5 py-1 bg-clinical-surface hover:bg-slate-700 text-amber-400 border border-amber-500/30 rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer">
+                <i class="ph-bold ph-plus"></i> Add Test Row
+              </button>
+            </div>
+            <div id="authorInvestigationsRows" class="space-y-3"></div>
+          </div>
+
+          <!-- Provisional Diagnosis MCQ with CORRECT OPTION SELECTOR -->
+          <div class="space-y-3 pt-3 border-t border-clinical-border">
+            <div class="flex items-center justify-between">
+              <div class="text-xs font-bold uppercase tracking-wider text-cyan-400">5. Provisional Diagnosis MCQ</div>
+              <!-- Admin chooses which is correct -->
+              <div class="flex items-center gap-2">
+                <span class="text-slate-300 font-bold">Designate Correct Answer:</span>
+                <select id="formMcqCorrectSelect" class="bg-emerald-950/80 border border-emerald-500 text-emerald-300 rounded-lg px-2.5 py-1 font-bold text-xs">
+                  <option value="0">Option A</option>
+                  <option value="1">Option B</option>
+                  <option value="2">Option C</option>
+                  <option value="3">Option D</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label class="block font-semibold text-slate-300 mb-1">MCQ Question Prompt</label>
+              <input id="formMcqQuestion" value="What is the most definitive clinical diagnosis?" class="w-full bg-clinical-dark border border-clinical-border rounded-xl p-2.5 text-white" />
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div>
+                <label class="block text-slate-300 font-bold mb-1">Option A</label>
+                <input id="formMcqOpt0" required value="Acute Biliary Pancreatitis" class="w-full bg-clinical-dark border border-clinical-border focus:border-amber-500 rounded-lg p-2 text-white" />
+              </div>
+              <div>
+                <label class="block text-slate-300 font-bold mb-1">Option B</label>
+                <input id="formMcqOpt1" required value="Perforated Peptic Ulcer" class="w-full bg-clinical-dark border border-clinical-border focus:border-amber-500 rounded-lg p-2 text-white" />
+              </div>
+              <div>
+                <label class="block text-slate-300 font-bold mb-1">Option C</label>
+                <input id="formMcqOpt2" required value="Acute Cholecystitis" class="w-full bg-clinical-dark border border-clinical-border focus:border-amber-500 rounded-lg p-2 text-white" />
+              </div>
+              <div>
+                <label class="block text-slate-300 font-bold mb-1">Option D</label>
+                <input id="formMcqOpt3" required value="Inferior Wall STEMI" class="w-full bg-clinical-dark border border-clinical-border focus:border-amber-500 rounded-lg p-2 text-white" />
+              </div>
+            </div>
+
+            <div>
+              <label class="block font-semibold text-slate-300 mb-1">Diagnosis Rationale / Explanation</label>
+              <textarea id="formMcqExplanation" rows="2" class="w-full bg-clinical-dark border border-clinical-border rounded-xl p-2 text-white">Elevated serum lipase > 3x upper limit of normal along with typical epigastric pain radiating to back confirms acute pancreatitis per revised Atlanta criteria.</textarea>
+            </div>
+          </div>
+
+          <!-- Guideline Management Options with INDIVIDUAL CORRECT/HARMFUL TOGGLES -->
+          <div class="space-y-3 pt-3 border-t border-clinical-border">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-xs font-bold uppercase tracking-wider text-emerald-400">6. Guideline Management Protocol Options</div>
+                <p class="text-[11px] text-slate-400">Add interventions and toggle whether each is Recommended (Correct) or Harmful/Contraindicated.</p>
+              </div>
+              <button type="button" onclick="addAuthorManagementRow()" class="px-2.5 py-1 bg-clinical-surface hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer">
+                <i class="ph-bold ph-plus"></i> Add Intervention
+              </button>
+            </div>
+
+            <div id="authorManagementRows" class="space-y-2"></div>
+
+            <div>
+              <label class="block font-semibold text-slate-300 mb-1">Management Protocol Explanation / Reference</label>
+              <textarea id="formMgmtExplanation" rows="2" class="w-full bg-clinical-dark border border-clinical-border rounded-xl p-2 text-white">Aggressive hydration with balanced crystalloids is vital. Routine prophylactic antibiotics in mild pancreatitis and non-indicated laparotomies cause adverse patient outcomes.</textarea>
+            </div>
+          </div>
+
+          <div class="flex justify-end gap-3 pt-4 border-t border-clinical-border">
+            <button type="button" onclick="switchAdminTab('cases')" class="px-5 py-2.5 bg-clinical-surface hover:bg-slate-800 text-slate-300 rounded-xl font-semibold cursor-pointer">
+              Cancel
+            </button>
+            <button type="submit" class="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer">
+              Save & Launch Case
+            </button>
+          </div>
+
+        </form>
+      </div>
+
+      <!-- ADMIN TAB 3: ROSTER -->
+      <div id="adminView-roster" class="adminSubView hidden space-y-4">
+        <div class="bg-clinical-panel border border-clinical-border rounded-2xl p-5 shadow-xl">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-clinical-border pb-4">
+            <div>
+              <h3 class="text-base font-bold text-white flex items-center gap-2">
+                <i class="ph-bold ph-shield-star text-amber-400 text-lg"></i>
+                <span>Candidate Authorization Whitelist</span>
+              </h3>
+              <p class="text-xs text-slate-400 mt-0.5">Only candidate roll numbers present in this roster can enter the quiz simulation on their phones.</p>
+            </div>
+            <button onclick="openAddCandidateModal()" class="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer">
+              <i class="ph-bold ph-user-plus text-base"></i>
+              <span>Add Candidate</span>
+            </button>
+          </div>
+
+          <div class="mt-4 flex flex-wrap gap-2 items-center">
+            <button onclick="loadSampleWhitelistedCandidates()" class="px-2.5 py-1 bg-clinical-surface text-cyan-400 rounded-lg text-xs font-mono border border-clinical-border cursor-pointer">
+              + Load Sample Roster (1, 2, AUR-101 to 105)
+            </button>
+            <button onclick="clearCandidateWhitelist()" class="px-2.5 py-1 bg-clinical-surface text-rose-400 rounded-lg text-xs border border-clinical-border cursor-pointer">
+              Clear Roster
+            </button>
+          </div>
+
+          <div class="mt-4 overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-clinical-dark text-slate-400 font-semibold border-b border-clinical-border uppercase tracking-wider text-[10px]">
+                <tr>
+                  <th class="py-2.5 px-3">Roll No / ID</th>
+                  <th class="py-2.5 px-3">Candidate Full Name</th>
+                  <th class="py-2.5 px-3">College / Batch</th>
+                  <th class="py-2.5 px-3">Status</th>
+                  <th class="py-2.5 px-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="whitelistTableBody" class="divide-y divide-clinical-border"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ADMIN TAB 4: LIVE MONITOR -->
+      <div id="adminView-liveMonitor" class="adminSubView hidden space-y-4">
+        <div class="bg-clinical-panel border border-clinical-border rounded-2xl p-5 shadow-xl">
+          <div class="flex items-center justify-between mb-4 border-b border-clinical-border pb-3">
+            <div>
+              <h3 class="text-base font-bold text-white flex items-center gap-2">
+                <i class="ph-bold ph-broadcast text-cyan-400 text-lg"></i>
+                <span>Simultaneous Live Participant Monitor</span>
+              </h3>
+              <p class="text-xs text-slate-400 mt-0.5">Real-time answers, score, and rank progression stream from student phones.</p>
+            </div>
+            <button onclick="broadcastEndCaseSignal()" class="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30 cursor-pointer">
+              <i class="ph-bold ph-stop-circle text-base"></i>
+              <span>End Case & Reveal Final Leaderboard</span>
+            </button>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-clinical-dark text-slate-400 font-semibold border-b border-clinical-border uppercase tracking-wider text-[10px]">
+                <tr>
+                  <th class="py-2.5 px-3">Rank</th>
+                  <th class="py-2.5 px-3">Candidate</th>
+                  <th class="py-2.5 px-3">Roll ID</th>
+                  <th class="py-2.5 px-3">Unlocked Tests</th>
+                  <th class="py-2.5 px-3">Current Coins</th>
+                  <th class="py-2.5 px-3">Quiz Status</th>
+                  <th class="py-2.5 px-3">Time</th>
+                </tr>
+              </thead>
+              <tbody id="liveParticipantsTableBody" class="divide-y divide-clinical-border"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- MODAL: ADMIN LOGIN -->
+  <div id="adminLoginModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="bg-clinical-panel border border-amber-500/40 rounded-2xl w-full max-w-sm p-6 shadow-2xl relative">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-lg font-bold">
+            <i class="ph-bold ph-lock-key"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-white">Quiz Master Authentication</h3>
+            <p class="text-[11px] text-slate-400">Admin security clearance</p>
+          </div>
+        </div>
+        <button onclick="toggleModal('adminLoginModal', false)" class="text-slate-400 hover:text-white cursor-pointer"><i class="ph-bold ph-x text-lg"></i></button>
+      </div>
+
+      <form onsubmit="handleAdminLoginSubmit(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Master Passcode</label>
+          <input id="adminPinInput" type="password" required placeholder="Enter passcode" class="w-full bg-clinical-dark border border-clinical-border focus:border-amber-500 text-white rounded-xl px-3.5 py-2.5 text-sm focus:outline-none font-mono" />
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" onclick="toggleModal('adminLoginModal', false)" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white cursor-pointer">Cancel</button>
+          <button type="submit" class="px-5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black rounded-xl text-xs shadow-md shadow-amber-500/20 cursor-pointer">
+            Access Dashboard
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: ADD CANDIDATE -->
+  <div id="addCandidateModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="bg-clinical-panel border border-clinical-border rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+      <div class="flex items-center justify-between mb-3 border-b border-clinical-border pb-3">
+        <h3 class="text-sm font-bold text-white">Whitelist New Candidate</h3>
+        <button onclick="toggleModal('addCandidateModal', false)" class="text-slate-400 hover:text-white cursor-pointer"><i class="ph-bold ph-x"></i></button>
+      </div>
+      <form onsubmit="handleAddNewCandidate(event)" class="space-y-3 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-300 mb-1">Roll Number / ID <span class="text-rose-400">*</span></label>
+          <input id="newCandidateRoll" required placeholder="e.g. 1, 2, AUR-105" class="w-full bg-clinical-dark border border-clinical-border rounded-xl p-2.5 text-white uppercase font-mono" />
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-300 mb-1">Full Name <span class="text-rose-400">*</span></label>
+          <input id="newCandidateName" required placeholder="e.g. Dr. Harish" class="w-full bg-clinical-dark border border-clinical-border rounded-xl p-2.5 text-white" />
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-300 mb-1">Batch / Unit</label>
+          <input id="newCandidateBatch" placeholder="e.g. Final Year MBBS" class="w-full bg-clinical-dark border border-clinical-border rounded-xl p-2.5 text-white" />
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" onclick="toggleModal('addCandidateModal', false)" class="px-4 py-2 rounded-xl text-slate-400 hover:text-white cursor-pointer">Cancel</button>
+          <button type="submit" class="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl cursor-pointer">Whitelist</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: LEADERBOARD & PODIUM -->
+  <div id="leaderboardModal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="bg-clinical-panel border border-amber-500/40 rounded-2xl w-full max-w-2xl p-6 shadow-2xl flex flex-col max-h-[90vh]">
+      <div class="flex items-center justify-between border-b border-clinical-border pb-4">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-400 text-slate-950 flex items-center justify-center text-xl font-bold shadow-md shadow-amber-500/20">
+            <i class="ph-bold ph-trophy"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="text-base font-bold text-white">Live Room Leaderboard</h3>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono">Live Ranks</span>
+            </div>
+            <p id="leaderboardCaseTitle" class="text-xs text-slate-400 mt-0.5">Scored by coins balance & diagnostic precision</p>
+          </div>
+        </div>
+        <button onclick="toggleModal('leaderboardModal', false)" class="text-slate-400 hover:text-white cursor-pointer"><i class="ph-bold ph-x text-lg"></i></button>
+      </div>
+
+      <div id="podiumArea" class="grid grid-cols-3 gap-2 my-4 pt-2 text-center"></div>
+
+      <div class="flex-1 overflow-y-auto pr-1">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-clinical-dark text-slate-400 uppercase tracking-wider text-[10px] sticky top-0">
+            <tr>
+              <th class="py-2.5 px-3">Rank</th>
+              <th class="py-2.5 px-3">Candidate</th>
+              <th class="py-2.5 px-3">Roll No</th>
+              <th class="py-2.5 px-3">Status</th>
+              <th class="py-2.5 px-3 text-right">Coins</th>
+            </tr>
+          </thead>
+          <tbody id="leaderboardTableBody" class="divide-y divide-clinical-border"></tbody>
+        </table>
+      </div>
+
+      <div class="mt-4 pt-3 border-t border-clinical-border flex items-center justify-between text-xs text-slate-400">
+        <span id="individualRankModalFooter" class="text-[11px] font-mono text-cyan-400">Your Rank: Evaluating...</span>
+        <button onclick="toggleModal('leaderboardModal', false)" class="px-5 py-2 bg-clinical-surface hover:bg-slate-800 text-white rounded-xl font-bold cursor-pointer">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Audio synthesizer
+    let synth = null;
+    function playTone(type) {
+      try {
+        if (!synth && window.Tone) {
+          synth = new Tone.PolySynth(Tone.Synth).toDestination();
+          synth.volume.value = -12;
+        }
+        if (synth) {
+          if (type === 'coin') synth.triggerAttackRelease(['F#5', 'B5'], '16n');
+          else if (type === 'success') synth.triggerAttackRelease(['C5', 'E5', 'G5', 'B5'], '8n');
+          else if (type === 'error') synth.triggerAttackRelease(['Eb4', 'D4'], '8n');
+        }
+      } catch (e) {}
+    }
+
+    function saveCases() { localStorage.setItem('aureus_cases', JSON.stringify(state.cases)); }
+    function saveWhitelist() { localStorage.setItem('aureus_whitelist', JSON.stringify(state.whitelist)); }
+    function saveLiveParticipants() { localStorage.setItem('aureus_live_participants', JSON.stringify(state.liveParticipants)); }
+    function getActiveCase() { return state.cases.find(c => c.id === state.activeCaseId) || state.cases[0]; }
+
+    function showToast(msg, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      let borderCol = 'border-amber-500/50 bg-clinical-panel text-amber-200';
+      if (type === 'error') borderCol = 'border-rose-500/50 bg-rose-950/80 text-rose-200';
+      if (type === 'success') borderCol = 'border-emerald-500/50 bg-emerald-950/80 text-emerald-200';
+      toast.className = `p-3 rounded-xl border ${borderCol} shadow-2xl text-xs flex items-center gap-2 pointer-events-auto transition-all duration-300`;
+      toast.innerHTML = `<i class="ph-bold ph-bell-simple text-base"></i><span>${msg}</span>`;
+      container.appendChild(toast);
+      setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3500);
+    }
+
+    // =========================================================================
+    // PEERJS REAL-TIME SYNC ENGINE
+    // =========================================================================
+    const PEER_HOST_ROOM_ID = 'aureus-quiz-room-master-session';
+    let peer = null;
+    let connections = [];
+    let hostConn = null;
+
+    function initNetworking() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const isHostLaptop = urlParams.get('admin') === '1' || window.location.protocol === 'file:' || state.isAdmin;
+
+      if (isHostLaptop) initAsAdminHost();
+      else initAsCandidateClient();
+    }
+
+    function initAsAdminHost() {
+      peer = new Peer(PEER_HOST_ROOM_ID);
+
+      peer.on('open', (id) => {
+        document.getElementById('networkStatusText').innerText = 'Host Live (Master)';
+        document.getElementById('networkPulse').className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+        updateHostConnectedCount();
+      });
+
+      peer.on('connection', (conn) => {
+        connections.push(conn);
+        updateHostConnectedCount();
+
+        conn.on('open', () => {
+          conn.send({
+            type: 'INITIAL_STATE_SYNC',
+            whitelist: state.whitelist,
+            activeCaseId: state.activeCaseId,
+            cases: state.cases,
+            liveParticipants: state.liveParticipants
+          });
+        });
+
+        conn.on('data', (data) => {
+          handleIncomingNetworkMessage(data);
+          broadcastToClients(data, conn);
+        });
+
+        conn.on('close', () => {
+          connections = connections.filter(c => c !== conn);
+          updateHostConnectedCount();
+        });
+      });
+
+      peer.on('error', (err) => {
+        if (err.type === 'unavailable-id') initAsCandidateClient();
+      });
+    }
+
+    function initAsCandidateClient() {
+      peer = new Peer();
+
+      peer.on('open', (id) => {
+        document.getElementById('networkStatusText').innerText = 'Connecting...';
+        hostConn = peer.connect(PEER_HOST_ROOM_ID, { reliable: true });
+
+        hostConn.on('open', () => {
+          document.getElementById('networkStatusText').innerText = 'Synced with Master';
+          document.getElementById('networkPulse').className = 'w-2 h-2 rounded-full bg-emerald-500';
+          showToast('Connected to Quiz Master Host.', 'success');
+          if (state.currentCandidate) syncCandidateLiveProgress();
+        });
+
+        hostConn.on('data', handleIncomingNetworkMessage);
+
+        hostConn.on('close', () => {
+          document.getElementById('networkStatusText').innerText = 'Disconnected';
+          document.getElementById('networkPulse').className = 'w-2 h-2 rounded-full bg-rose-500';
+        });
+      });
+
+      peer.on('error', (err) => {
+        document.getElementById('networkStatusText').innerText = 'Offline Mode';
+      });
+    }
+
+    function updateHostConnectedCount() {
+      const countEl = document.getElementById('adminConnectedCount');
+      if (countEl) countEl.innerText = connections.length;
+    }
+
+    function broadcastToClients(message, excludeConn = null) {
+      connections.forEach(conn => {
+        if (conn !== excludeConn && conn.open) conn.send(message);
+      });
+    }
+
+    function sendToNetwork(message) {
+      if (hostConn && hostConn.open) hostConn.send(message);
+      else if (connections.length > 0) broadcastToClients(message);
+    }
+
+    function handleIncomingNetworkMessage(msg) {
+      if (!msg || !msg.type) return;
+
+      if (msg.type === 'INITIAL_STATE_SYNC' || msg.type === 'WHITELIST_SYNC') {
+        state.whitelist = msg.whitelist;
+        saveWhitelist();
+        if (msg.cases) { state.cases = msg.cases; saveCases(); }
+        if (msg.activeCaseId) { state.activeCaseId = msg.activeCaseId; }
+        if (msg.liveParticipants) { state.liveParticipants = msg.liveParticipants; saveLiveParticipants(); }
+        renderWhitelistTable();
+        renderLiveParticipantsTable();
+        renderLeaderboardTable();
+        updateIndividualCandidateRank();
+      }
+
+      if (msg.type === 'CANDIDATE_PROGRESS') {
+        updateParticipantEntry(msg.data);
+      }
+
+      if (msg.type === 'CASE_BROADCAST') {
+        state.activeCaseId = msg.data.caseId;
+        localStorage.setItem('aureus_active_case_id', msg.data.caseId);
+        showToast(`Quiz Master launched: ${msg.data.caseTitle}`, 'info');
+        if (state.currentCandidate) initCandidateSession();
+      }
+
+      if (msg.type === 'END_CASE_SIGNAL') {
+        showToast('Quiz Master ended the case! Displaying podium.', 'info');
+        openLeaderboardModal();
+      }
+    }
+
+    // =========================================================================
+    // CANDIDATE AUTHENTICATION & GAMEPLAY
+    // =========================================================================
+    function handleCandidateLogin(e) {
+      e.preventDefault();
+      const rollInput = document.getElementById('inputCandidateRoll').value.trim().toUpperCase();
+      const nameInput = document.getElementById('inputCandidateName').value.trim();
+
+      const match = state.whitelist.find(c => c.roll.trim().toUpperCase() === rollInput);
+
+      if (!match) {
+        playTone('error');
+        showToast(`Access Denied: Roll number '${rollInput}' is not authorized on the whitelist. Please contact Quiz Master.`, 'error');
+        return;
+      }
+
+      state.currentCandidate = {
+        roll: match.roll,
+        name: nameInput || match.name,
+        batch: match.batch || 'Candidate',
+        loginTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      sessionStorage.setItem('aureus_current_candidate', JSON.stringify(state.currentCandidate));
+      playTone('success');
+      showToast(`Welcome Dr. ${state.currentCandidate.name}. Access authorized.`, 'success');
+      initCandidateSession();
+    }
+
+    function initCandidateSession() {
+      if (!state.currentCandidate) {
+        document.getElementById('candidateLoginWall').classList.remove('hidden');
+        document.getElementById('quizSimulationArea').classList.add('hidden');
+        document.getElementById('candidateHeaderBlock').classList.add('hidden');
+        return;
+      }
+
+      document.getElementById('candidateLoginWall').classList.add('hidden');
+      document.getElementById('quizSimulationArea').classList.remove('hidden');
+      document.getElementById('candidateHeaderBlock').classList.remove('hidden');
+
+      document.getElementById('userHeaderName').innerText = state.currentCandidate.name;
+      document.getElementById('userHeaderRoll').innerText = state.currentCandidate.roll;
+
+      state.coins = 500;
+      state.unlockedInvestigations = new Set();
+      state.mcqAnswer = null;
+      state.mcqSubmitted = false;
+      state.selectedManagement = new Set();
+      state.managementSubmitted = false;
+      state.startTime = Date.now();
+      state.finished = false;
+
+      updateWalletUI();
+      renderCaseDataToUI();
+      goToStep(1);
+      syncCandidateLiveProgress();
+      updateIndividualCandidateRank();
+    }
+
+    function updateWalletUI() {
+      document.getElementById('walletCoins').innerText = state.coins;
+      const labWallet = document.getElementById('labWalletDisplay');
+      if (labWallet) labWallet.innerText = `${state.coins} Coins`;
+    }
+
+    function spendCoins(amount) {
+      state.coins -= amount;
+      updateWalletUI();
+      playTone('coin');
+      syncCandidateLiveProgress();
+    }
+
+    function awardCoins(amount) {
+      state.coins += amount;
+      updateWalletUI();
+      playTone('coin');
+      syncCandidateLiveProgress();
+    }
+
+    function goToStep(stepNumber) {
+      for (let i = 1; i <= 4; i++) {
+        document.getElementById(`viewStep${i}`).classList.add('hidden');
+        const btn = document.getElementById(`stepBtn-${i}`);
+        btn.className = 'py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition text-slate-400 hover:text-white hover:bg-clinical-surface';
+      }
+
+      document.getElementById(`viewStep${stepNumber}`).classList.remove('hidden');
+      const activeBtn = document.getElementById(`stepBtn-${stepNumber}`);
+      activeBtn.className = 'py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 font-bold shadow-md';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function renderCaseDataToUI() {
+      const activeCase = getActiveCase();
+      document.getElementById('activeCaseBadgeTitle').innerText = activeCase.title;
+
+      document.getElementById('patientNameDisplay').innerText = activeCase.patient.name;
+      document.getElementById('patientDemographicsDisplay').innerText = activeCase.patient.ageSex;
+      document.getElementById('patientTriageDisplay').innerText = activeCase.triage;
+      document.getElementById('patientOccupationDisplay').innerText = activeCase.patient.occupation;
+      document.getElementById('patientComplaintDisplay').innerText = activeCase.patient.chiefComplaint;
+      document.getElementById('patientHopiDisplay').innerText = activeCase.patient.hopi;
+      document.getElementById('patientPastHistoryDisplay').innerText = activeCase.patient.pastHistory;
+      document.getElementById('patientMedsDisplay').innerText = activeCase.patient.meds;
+
+      // Render clinical picture
+      const photoWrapper = document.getElementById('patientPhotoWrapper');
+      const photoDisplay = document.getElementById('patientPhotoDisplay');
+      if (activeCase.patient.imageUrl) {
+        photoDisplay.src = activeCase.patient.imageUrl;
+        photoWrapper.classList.remove('hidden');
+      } else {
+        photoWrapper.classList.add('hidden');
+      }
+
+      // Render Vitals
+      const vitalsContainer = document.getElementById('vitalsCardsContainer');
+      vitalsContainer.innerHTML = '';
+      activeCase.vitals.forEach(v => {
+        let border = 'border-clinical-border bg-clinical-dark/60';
+        let badge = 'bg-slate-800 text-slate-300';
+        if (v.status === 'critical') {
+          border = 'border-rose-500/50 bg-rose-950/20 text-rose-300';
+          badge = 'bg-rose-500/20 text-rose-300';
+        } else if (v.status === 'warning') {
+          border = 'border-amber-500/40 bg-amber-950/20 text-amber-300';
+          badge = 'bg-amber-500/20 text-amber-300';
+        }
+        vitalsContainer.innerHTML += `
+          <div class="rounded-xl border ${border} p-3 flex flex-col justify-between">
+            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">${v.label}</span>
+            <div class="text-base sm:text-lg font-black my-1 font-mono">${v.val}</div>
+            <span class="text-[9px] px-2 py-0.5 rounded-full ${badge} font-medium inline-block self-start">${v.desc}</span>
+          </div>
+        `;
+      });
+
+      // Render Systemic Exam
+      const examContainer = document.getElementById('systemicExamContainer');
+      examContainer.innerHTML = '';
+      activeCase.examination.forEach(ex => {
+        examContainer.innerHTML += `
+          <div class="bg-clinical-dark/60 border border-clinical-border rounded-xl p-3.5">
+            <div class="text-xs font-bold text-amber-400 mb-1 flex items-center gap-1.5">
+              <i class="ph-bold ph-caret-right"></i>
+              <span>${ex.system}</span>
+            </div>
+            <p class="text-xs text-slate-300 leading-relaxed">${ex.text}</p>
+          </div>
+        `;
+      });
+
+      renderInvestigationsArea();
+      renderQuizArea();
+      document.getElementById('caseFinishedCard').classList.add('hidden');
+    }
+
+    function renderInvestigationsArea() {
+      const activeCase = getActiveCase();
+      const container = document.getElementById('investigationsListContainer');
+      container.innerHTML = '';
+
+      activeCase.investigations.forEach(inv => {
+        const isUnlocked = state.unlockedInvestigations.has(inv.id);
+        const card = document.createElement('div');
+        card.className = `p-3 rounded-xl border transition cursor-pointer flex items-center justify-between ${
+          isUnlocked ? 'bg-cyan-950/30 border-cyan-500/60' : 'bg-clinical-dark/70 border-clinical-border'
+        }`;
+
+        card.innerHTML = `
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg ${isUnlocked ? 'bg-cyan-600 text-white' : 'bg-clinical-surface text-slate-400'} flex items-center justify-center font-bold">
+              <i class="ph-bold ${isUnlocked ? 'ph-check' : 'ph-flask'}"></i>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                <span>${inv.name}</span>
+                ${inv.imageUrl ? '<i class="ph-fill ph-image text-cyan-400" title="Includes Image Scan"></i>' : ''}
+              </div>
+              <div class="text-[11px] text-slate-400">${isUnlocked ? '<span class="text-cyan-400">Unlocked</span>' : 'Cost: ' + (inv.cost || 15) + ' Coins'}</div>
+            </div>
+          </div>
+          <div>
+            ${isUnlocked 
+              ? `<button onclick="viewInvestigationReport('${inv.id}')" class="px-3 py-1.5 bg-cyan-600 text-white rounded-lg text-xs font-bold cursor-pointer">View</button>`
+              : `<button onclick="unlockInvestigation('${inv.id}')" class="px-3 py-1.5 bg-clinical-surface text-amber-300 border border-amber-500/30 rounded-lg text-xs font-bold cursor-pointer">Unlock</button>`}
+          </div>
+        `;
+        container.appendChild(card);
+      });
+
+      document.getElementById('unlockedTestsCounter').innerText = `${state.unlockedInvestigations.size} / ${activeCase.investigations.length} Unlocked`;
+    }
+
+    function unlockInvestigation(invId) {
+      const activeCase = getActiveCase();
+      const inv = activeCase.investigations.find(i => i.id === invId);
+      const cost = inv.cost || 15;
+
+      if (state.coins < cost) {
+        playTone('error');
+        showToast('Insufficient coins balance!', 'error');
+        return;
+      }
+
+      state.unlockedInvestigations.add(invId);
+      spendCoins(cost);
+      renderInvestigationsArea();
+      viewInvestigationReport(invId);
+    }
+
+    function viewInvestigationReport(invId) {
+      const activeCase = getActiveCase();
+      const inv = activeCase.investigations.find(i => i.id === invId);
+      if (!inv) return;
+
+      document.getElementById('reportHeaderTitle').innerText = inv.name;
+      document.getElementById('reportHeaderBadge').innerText = 'Verified';
+      document.getElementById('reportHeaderBadge').className = 'text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold';
+
+      let visualGraphic = '';
+
+      if (inv.imageUrl) {
+        visualGraphic = `
+          <div class="w-full max-w-md mx-auto mb-4 rounded-xl overflow-hidden border border-cyan-500/40 bg-black">
+            <img src="${inv.imageUrl}" alt="${inv.name}" class="w-full max-h-72 object-contain mx-auto" />
+          </div>
+        `;
+      } else if (inv.svgType === 'ecg_stemi') {
+        visualGraphic = `
+          <div class="w-full rounded-xl border border-rose-500/40 p-3 ecg-grid mb-4">
+            <div class="text-[10px] font-mono text-rose-400 mb-1">V2/V3: ST-ELEVATIONS > 2.5mm</div>
+            <svg viewBox="0 0 700 160" class="w-full h-32 stroke-rose-500 fill-none">
+              <path stroke-width="2.5" d="M 0,80 L 70,80 L 85,15 L 95,110 L 105,80 L 115,35 Q 145,25 170,80 L 250,80 L 265,15 L 275,110 L 285,80 L 295,35 Q 325,25 350,80 L 430,80 L 445,15 L 455,110 L 465,80 L 475,35 Q 505,25 530,80 L 700,80" />
+            </svg>
+          </div>
+        `;
+      }
+
+      document.getElementById('reportDisplayBody').innerHTML = `
+        <div class="w-full text-left space-y-3">
+          ${visualGraphic}
+          <div class="bg-clinical-dark border border-clinical-border rounded-xl p-4 space-y-2">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Findings</span>
+            <p class="text-xs sm:text-sm text-slate-200">${inv.summary}</p>
+            <div class="pt-2 border-t border-clinical-border">
+              <span class="text-[10px] font-bold uppercase tracking-wider text-cyan-400">Clinical Interpretation</span>
+              <p class="text-xs text-cyan-200 font-semibold mt-0.5">${inv.impression}</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Render Quiz Area with dynamic randomized presentation
+    function renderQuizArea() {
+      const activeCase = getActiveCase();
+      document.getElementById('mcqQuestionTitle').innerText = activeCase.mcq.question;
+      const mcqContainer = document.getElementById('mcqOptionsContainer');
+      mcqContainer.innerHTML = '';
+
+      // Map options with their original index to preserve admin's correct index choice
+      const optionsWithMeta = activeCase.mcq.options.map((optText, origIdx) => ({
+        text: optText,
+        isCorrect: origIdx === parseInt(activeCase.mcq.correctIndex)
+      }));
+
+      // Shuffle options for candidate integrity
+      optionsWithMeta.sort(() => 0.5 - Math.random());
+      state.currentCaseShuffledMcq = optionsWithMeta;
+
+      optionsWithMeta.forEach((optObj, idx) => {
+        const btn = document.createElement('button');
+        btn.id = `mcq-btn-${idx}`;
+        btn.onclick = () => selectMcqAnswer(idx);
+        btn.className = 'w-full text-left p-3.5 rounded-xl border border-clinical-border bg-clinical-dark/70 hover:bg-clinical-surface text-xs font-medium text-slate-200 transition flex items-center justify-between cursor-pointer';
+        btn.innerHTML = `
+          <div class="flex items-center gap-2.5">
+            <span class="w-6 h-6 rounded-lg bg-clinical-surface border border-clinical-border flex items-center justify-center font-bold font-mono text-slate-400">${String.fromCharCode(65 + idx)}</span>
+            <span>${optObj.text}</span>
+          </div>
+        `;
+        mcqContainer.appendChild(btn);
+      });
+
+      // Management Interventions: Randomized from Admin's customized list
+      let mgmtList = [];
+      if (Array.isArray(activeCase.management)) {
+        mgmtList = [...activeCase.management];
+      } else if (activeCase.management && activeCase.management.recommended) {
+        mgmtList = [
+          ...activeCase.management.recommended.map(t => ({ text: t, isCorrect: true })),
+          ...activeCase.management.contraindicated.map(t => ({ text: t, isCorrect: false }))
+        ];
+      }
+      
+      // Shuffle interventions
+      mgmtList.sort(() => 0.5 - Math.random());
+      state.currentCaseMgmtItems = mgmtList;
+
+      const mgmtContainer = document.getElementById('managementChecklistContainer');
+      mgmtContainer.innerHTML = '';
+      mgmtList.forEach((item, idx) => {
+        const div = document.createElement('div');
+        div.id = `mgmt-chk-${idx}`;
+        div.onclick = () => toggleManagementSelection(idx);
+        div.className = 'p-3 rounded-xl border border-clinical-border bg-clinical-dark/60 hover:bg-clinical-surface cursor-pointer transition flex items-start gap-2.5 text-xs text-slate-300';
+        div.innerHTML = `
+          <div class="mt-0.5 w-4 h-4 rounded border border-slate-600 flex items-center justify-center text-[10px] text-white">
+            <i class="ph-bold ph-check hidden checkicon"></i>
+          </div>
+          <span class="flex-1">${item.text}</span>
+        `;
+        mgmtContainer.appendChild(div);
+      });
+
+      document.getElementById('mcqFeedbackBlock').classList.add('hidden');
+      document.getElementById('managementFeedbackBlock').classList.add('hidden');
+      document.getElementById('btnSubmitManagement').disabled = false;
+      document.getElementById('btnSubmitManagement').classList.remove('opacity-50', 'cursor-not-allowed');
+    }
+
+    function selectMcqAnswer(selectedIndex) {
+      if (state.mcqSubmitted) return;
+      state.mcqAnswer = selectedIndex;
+      state.mcqSubmitted = true;
+      const activeCase = getActiveCase();
+      const selectedItem = state.currentCaseShuffledMcq[selectedIndex];
+      const isCorrect = selectedItem && selectedItem.isCorrect;
+
+      state.currentCaseShuffledMcq.forEach((item, idx) => {
+        const btn = document.getElementById(`mcq-btn-${idx}`);
+        if (item.isCorrect) {
+          btn.className = 'w-full text-left p-3.5 rounded-xl border border-emerald-500 bg-emerald-950/40 text-xs font-semibold text-emerald-200 flex items-center justify-between';
+        } else if (idx === selectedIndex && !isCorrect) {
+          btn.className = 'w-full text-left p-3.5 rounded-xl border border-rose-500 bg-rose-950/40 text-xs font-semibold text-rose-200 flex items-center justify-between';
+        } else {
+          btn.classList.add('opacity-50');
+        }
+      });
+
+      const feedback = document.getElementById('mcqFeedbackBlock');
+      if (isCorrect) {
+        playTone('success');
+        awardCoins(100);
+        feedback.className = 'mt-4 p-4 rounded-xl text-xs bg-emerald-950/60 border border-emerald-500/40 text-emerald-200';
+        feedback.innerText = 'Diagnostic Precision: Correct (+100 Coins). ' + activeCase.mcq.explanation;
+      } else {
+        playTone('error');
+        feedback.className = 'mt-4 p-4 rounded-xl text-xs bg-rose-950/60 border border-rose-500/40 text-rose-200';
+        feedback.innerText = 'Incorrect Diagnosis. ' + activeCase.mcq.explanation;
+      }
+      feedback.classList.remove('hidden');
+
+      updateIndividualCandidateRank();
+      showToast(`Updated Rank: ${getCurrentUserRankString()}`, 'info');
+      checkCandidateCaseCompletion();
+    }
+
+    function toggleManagementSelection(idx) {
+      if (state.managementSubmitted) return;
+      const el = document.getElementById(`mgmt-chk-${idx}`);
+      const checkicon = el.querySelector('.checkicon');
+
+      if (state.selectedManagement.has(idx)) {
+        state.selectedManagement.delete(idx);
+        el.classList.remove('border-amber-500', 'bg-amber-950/20');
+        checkicon.classList.add('hidden');
+      } else {
+        state.selectedManagement.add(idx);
+        el.classList.add('border-amber-500', 'bg-amber-950/20');
+        checkicon.classList.remove('hidden');
+      }
+      document.getElementById('selectedInterventionsCounter').innerText = `${state.selectedManagement.size} selected`;
+    }
+
+    function evaluateCandidateManagement() {
+      if (state.managementSubmitted) return;
+      if (state.selectedManagement.size === 0) {
+        showToast('Please select at least one intervention.', 'error');
+        return;
+      }
+
+      state.managementSubmitted = true;
+      const activeCase = getActiveCase();
+      let accurateCount = 0;
+      let penaltyCount = 0;
+      const totalCorrect = state.currentCaseMgmtItems.filter(i => i.isCorrect).length;
+
+      state.currentCaseMgmtItems.forEach((item, idx) => {
+        const isSelected = state.selectedManagement.has(idx);
+        const el = document.getElementById(`mgmt-chk-${idx}`);
+        if (isSelected && item.isCorrect) {
+          el.className = 'p-3 rounded-xl border border-emerald-500 bg-emerald-950/30 text-xs text-emerald-200 flex items-start gap-2.5';
+          accurateCount++;
+        } else if (isSelected && !item.isCorrect) {
+          el.className = 'p-3 rounded-xl border border-rose-500 bg-rose-950/40 text-xs text-rose-200 flex items-start gap-2.5';
+          penaltyCount++;
+        } else if (!isSelected && item.isCorrect) {
+          el.className = 'p-3 rounded-xl border border-amber-500/50 bg-amber-950/20 text-xs text-amber-200 flex items-start gap-2.5';
+        }
+      });
+
+      const explanation = activeCase.managementExplanation || (activeCase.management && activeCase.management.explanation) || 'Protocol verified.';
+      const feedback = document.getElementById('managementFeedbackBlock');
+
+      if (penaltyCount === 0 && accurateCount === totalCorrect) {
+        playTone('success');
+        awardCoins(100);
+        feedback.className = 'mt-4 p-4 rounded-xl text-xs bg-emerald-950/60 border border-emerald-500/40 text-emerald-200';
+        feedback.innerText = 'Guideline-Directed Protocol Achieved! (+100 Coins). ' + explanation;
+      } else {
+        playTone('error');
+        if (penaltyCount > 0) spendCoins(penaltyCount * 25);
+        feedback.className = 'mt-4 p-4 rounded-xl text-xs bg-amber-950/60 border border-amber-500/40 text-amber-200';
+        feedback.innerText = 'Protocol Deviation. Penalty for incorrect selections applied. ' + explanation;
+      }
+      feedback.classList.remove('hidden');
+
+      document.getElementById('btnSubmitManagement').disabled = true;
+      document.getElementById('btnSubmitManagement').classList.add('opacity-50', 'cursor-not-allowed');
+
+      checkCandidateCaseCompletion();
+    }
+
+    function checkCandidateCaseCompletion() {
+      if (state.mcqSubmitted && state.managementSubmitted) {
+        state.finished = true;
+        const totalDurationSec = Math.round((Date.now() - state.startTime) / 1000);
+
+        document.getElementById('caseFinishedCard').classList.remove('hidden');
+        document.getElementById('summaryCoinsDisplay').innerText = state.coins;
+        
+        const isMcqCorrect = state.currentCaseShuffledMcq[state.mcqAnswer] && state.currentCaseShuffledMcq[state.mcqAnswer].isCorrect;
+        const mcqScore = isMcqCorrect ? 50 : 0;
+        document.getElementById('summaryAccuracyDisplay').innerText = (mcqScore + 50) + '%';
+
+        syncCandidateLiveProgress(true, totalDurationSec);
+        updateIndividualCandidateRank();
+
+        document.getElementById('summaryRankDisplay').innerText = getCurrentUserRankString();
+        showToast('Case completed! Room rankings revealed.', 'success');
+
+        setTimeout(openLeaderboardModal, 1200);
+      }
+    }
+
+    function syncCandidateLiveProgress(completed = false, duration = null) {
+      if (!state.currentCandidate) return;
+
+      const participantPayload = {
+        roll: state.currentCandidate.roll,
+        name: state.currentCandidate.name,
+        batch: state.currentCandidate.batch,
+        coins: state.coins,
+        caseId: state.activeCaseId,
+        unlockedCount: state.unlockedInvestigations.size,
+        completed: completed || state.finished,
+        duration: duration || Math.round((Date.now() - state.startTime) / 1000),
+        lastSeen: Date.now()
+      };
+
+      sendToNetwork({
+        type: 'CANDIDATE_PROGRESS',
+        data: participantPayload
+      });
+
+      updateParticipantEntry(participantPayload);
+    }
+
+    function updateParticipantEntry(payload) {
+      const idx = state.liveParticipants.findIndex(p => p.roll === payload.roll && p.caseId === payload.caseId);
+      if (idx >= 0) {
+        state.liveParticipants[idx] = payload;
+      } else {
+        state.liveParticipants.push(payload);
+      }
+      saveLiveParticipants();
+      renderLiveParticipantsTable();
+      renderLeaderboardTable();
+      updateIndividualCandidateRank();
+    }
+
+    function getCurrentUserRankString() {
+      if (!state.currentCandidate) return '--';
+      const participants = state.liveParticipants
+        .filter(p => p.caseId === state.activeCaseId)
+        .sort((a, b) => b.coins - a.coins);
+      const userIndex = participants.findIndex(p => p.roll === state.currentCandidate.roll);
+      if (userIndex === -1) return '#1 of 1';
+      return `#${userIndex + 1} of ${participants.length}`;
+    }
+
+    function updateIndividualCandidateRank() {
+      const rankBadge = document.getElementById('userHeaderRankBadge');
+      const footerRank = document.getElementById('individualRankModalFooter');
+      const rankStr = getCurrentUserRankString();
+      if (rankBadge) rankBadge.innerText = `Rank: ${rankStr}`;
+      if (footerRank) footerRank.innerText = `Your Current Rank: ${rankStr}`;
+    }
+
+    // =========================================================================
+    // ADMIN PORTAL & CASE AUTHORING WITH CUSTOM CORRECT ANSWER CONTROLS
+    // =========================================================================
+    let patientUploadedImageBase64 = '';
+
+    function handlePatientImageUpload(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          patientUploadedImageBase64 = event.target.result;
+          showToast('Patient clinical photo uploaded!', 'success');
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+
+    function addAuthorInvestigationRow() {
+      const container = document.getElementById('authorInvestigationsRows');
+      const rowId = 'inv_row_' + Date.now();
+      const div = document.createElement('div');
+      div.id = rowId;
+      div.className = 'p-3 bg-clinical-dark border border-clinical-border rounded-xl space-y-2';
+      div.innerHTML = `
+        <div class="flex items-center justify-between">
+          <input placeholder="Investigation Name (e.g. 12-Lead ECG / Chest X-Ray)" class="invName bg-clinical-panel border border-clinical-border rounded-lg p-2 text-xs text-white w-2/3" />
+          <button type="button" onclick="document.getElementById('${rowId}').remove()" class="text-rose-400 hover:text-rose-300 text-xs cursor-pointer"><i class="ph-bold ph-trash mr-1"></i>Remove</button>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <input placeholder="Findings Summary (e.g. ST elevations in V1-V4)" class="invSummary bg-clinical-panel border border-clinical-border rounded-lg p-2 text-xs text-white" />
+          <input placeholder="Impression (e.g. Acute Anterior STEMI)" class="invImpression bg-clinical-panel border border-clinical-border rounded-lg p-2 text-xs text-white" />
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-clinical-border/50 items-center">
+          <div>
+            <span class="text-[10px] text-slate-400 block mb-0.5">Upload Scan/Photo (ECG, X-Ray, CT):</span>
+            <input type="file" accept="image/*" class="invFile text-xs text-slate-300 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-clinical-surface file:text-cyan-400" />
+          </div>
+          <div>
+            <span class="text-[10px] text-slate-400 block mb-0.5">Or Scan Image URL:</span>
+            <input placeholder="https://..." class="invUrl bg-clinical-panel border border-clinical-border rounded-lg p-1.5 text-xs text-white w-full" />
+          </div>
+        </div>
+      `;
+      container.appendChild(div);
+    }
+
+    // Dynamic Authoring for Management Interventions
+    function addAuthorManagementRow(defaultText = '', defaultIsCorrect = true) {
+      const container = document.getElementById('authorManagementRows');
+      const rowId = 'mgmt_row_' + Date.now() + Math.random().toString(36).substring(2, 5);
+      const div = document.createElement('div');
+      div.id = rowId;
+      div.className = 'p-2 bg-clinical-dark border border-clinical-border rounded-xl flex items-center justify-between gap-2';
+      div.innerHTML = `
+        <input placeholder="Intervention description (e.g. IV Fluids or Sublingual Nitrates)" value="${defaultText}" class="mgmtText flex-1 bg-clinical-panel border border-clinical-border rounded-lg p-2 text-xs text-white" />
+        <select class="mgmtType bg-clinical-surface border border-clinical-border rounded-lg px-2 py-2 text-xs font-bold ${defaultIsCorrect ? 'text-emerald-400' : 'text-rose-400'}" onchange="this.className='mgmtType bg-clinical-surface border border-clinical-border rounded-lg px-2 py-2 text-xs font-bold ' + (this.value==='correct'?'text-emerald-400':'text-rose-400')">
+          <option value="correct" ${defaultIsCorrect ? 'selected' : ''}>Recommended (Correct)</option>
+          <option value="contraindicated" ${!defaultIsCorrect ? 'selected' : ''}>Harmful / Penalty</option>
+        </select>
+        <button type="button" onclick="document.getElementById('${rowId}').remove()" class="text-rose-400 hover:text-rose-300 px-2 py-1 text-xs cursor-pointer"><i class="ph-bold ph-trash"></i></button>
+      `;
+      container.appendChild(div);
+    }
+
+    function initDefaultManagementAuthoringRows() {
+      const container = document.getElementById('authorManagementRows');
+      container.innerHTML = '';
+      addAuthorManagementRow("Aggressive IV Ringer's Lactate fluid hydration", true);
+      addAuthorManagementRow("Nil Per Os (NPO) bowel rest", true);
+      addAuthorManagementRow("Multimodal IV opioid analgesia", true);
+      addAuthorManagementRow("Routine prophylactic intravenous antibiotics in mild pancreatitis", false);
+      addAuthorManagementRow("Immediate emergency laparotomy without imaging", false);
+    }
+
+    function readFileAsBase64(file) {
+      return new Promise((resolve) => {
+        if (!file) resolve('');
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function handleAuthorCaseSubmit(e) {
+      e.preventDefault();
+      const title = document.getElementById('formCaseTitle').value.trim();
+      const triage = document.getElementById('formCaseTriage').value;
+      const patientName = document.getElementById('formPatientName').value.trim();
+      const ageSex = document.getElementById('formPatientAgeSex').value.trim();
+      const occupation = document.getElementById('formPatientOccupation').value.trim() || 'Stable';
+      const chiefComplaint = document.getElementById('formChiefComplaint').value.trim();
+      const hopi = document.getElementById('formHopi').value.trim();
+      const pastHistory = document.getElementById('formPastHistory').value.trim() || 'No surgical complications.';
+      const meds = document.getElementById('formMeds').value.trim() || 'NKDA.';
+
+      const patientImageUrl = patientUploadedImageBase64 || document.getElementById('formPatientImageUrl').value.trim();
+
+      const vitals = [
+        { label: 'Blood Pressure', val: document.getElementById('formVitalBP').value || '120/80 mmHg', status: 'normal', desc: 'Hemodynamics' },
+        { label: 'Heart Rate', val: document.getElementById('formVitalHR').value || '80 bpm', status: 'normal', desc: 'Rhythm' },
+        { label: 'SpO2', val: document.getElementById('formVitalSpO2').value || '98%', status: 'normal', desc: 'Oxygenation' },
+        { label: 'Resp Rate', val: document.getElementById('formVitalRR').value || '18/min', status: 'normal', desc: 'Respiration' },
+        { label: 'Temperature', val: document.getElementById('formVitalTemp').value || '98.6 °F', status: 'normal', desc: 'Temp' }
+      ];
+
+      const examination = [
+        { system: 'General Survey', text: document.getElementById('formExamGeneral').value },
+        { system: 'Systemic Findings', text: document.getElementById('formExamSystemic').value }
+      ];
+
+      // Harvest custom investigations
+      const rows = document.querySelectorAll('#authorInvestigationsRows > div');
+      const investigations = [];
+
+      for (let idx = 0; idx < rows.length; idx++) {
+        const r = rows[idx];
+        const name = r.querySelector('.invName').value.trim();
+        const summary = r.querySelector('.invSummary').value.trim();
+        const impression = r.querySelector('.invImpression').value.trim();
+        const fileInput = r.querySelector('.invFile');
+        const urlInput = r.querySelector('.invUrl').value.trim();
+
+        let img = urlInput;
+        if (fileInput && fileInput.files && fileInput.files[0]) {
+          img = await readFileAsBase64(fileInput.files[0]);
+        }
+
+        if (name) {
+          investigations.push({
+            id: 'inv_custom_' + idx + '_' + Date.now(),
+            name: name,
+            badge: 'Diagnostic Lab',
+            cost: 15,
+            svgType: null,
+            imageUrl: img || '',
+            summary: summary || 'Evaluated within limits.',
+            impression: impression || 'Consistent with clinical findings.'
+          });
+        }
+      }
+
+      if (investigations.length === 0) {
+        investigations.push({
+          id: 'inv_default_1',
+          name: 'Diagnostic Blood Profile & Biomarkers',
+          badge: 'Hematology',
+          cost: 15,
+          svgType: null,
+          imageUrl: '',
+          summary: 'Leukocytosis and elevated biomarkers observed.',
+          impression: 'Evidence of acute pathology.'
+        });
+      }
+
+      // Harvest MCQ Options and chosen correct option
+      const opt0 = document.getElementById('formMcqOpt0').value;
+      const opt1 = document.getElementById('formMcqOpt1').value;
+      const opt2 = document.getElementById('formMcqOpt2').value;
+      const opt3 = document.getElementById('formMcqOpt3').value;
+      const chosenCorrectIndex = parseInt(document.getElementById('formMcqCorrectSelect').value);
+
+      // Harvest custom Management interventions
+      const mgmtRows = document.querySelectorAll('#authorManagementRows > div');
+      const customManagement = [];
+      mgmtRows.forEach(r => {
+        const text = r.querySelector('.mgmtText').value.trim();
+        const isCorrect = r.querySelector('.mgmtType').value === 'correct';
+        if (text) {
+          customManagement.push({ text, isCorrect });
+        }
+      });
+
+      if (customManagement.length === 0) {
+        customManagement.push({ text: 'Guideline-directed standard supportive care', isCorrect: true });
+        customManagement.push({ text: 'Inappropriate or harmful therapy', isCorrect: false });
+      }
+
+      const newCase = {
+        id: 'case_' + Date.now(),
+        title: title,
+        triage: triage,
+        patient: {
+          name: patientName,
+          ageSex: ageSex,
+          occupation: occupation,
+          chiefComplaint: chiefComplaint,
+          hopi: hopi,
+          pastHistory: pastHistory,
+          meds: meds,
+          imageUrl: patientImageUrl
+        },
+        vitals: vitals,
+        examination: examination,
+        investigations: investigations,
+        mcq: {
+          question: document.getElementById('formMcqQuestion').value,
+          options: [opt0, opt1, opt2, opt3],
+          correctIndex: chosenCorrectIndex, // Admin-defined correct option!
+          explanation: document.getElementById('formMcqExplanation').value
+        },
+        management: customManagement, // Admin-defined correct and harmful options!
+        managementExplanation: document.getElementById('formMgmtExplanation').value
+      };
+
+      state.cases.push(newCase);
+      saveCases();
+      patientUploadedImageBase64 = '';
+      showToast(`Case '${newCase.title}' created and published!`, 'success');
+      switchAdminTab('cases');
+      broadcastCaseActivation(newCase.id);
+    }
+
+    function renderLeaderboardTable() {
+      const activeCase = getActiveCase();
+      document.getElementById('leaderboardCaseTitle').innerText = activeCase.title;
+
+      const participants = state.liveParticipants
+        .filter(p => p.caseId === state.activeCaseId)
+        .sort((a, b) => b.coins - a.coins);
+
+      const tableBody = document.getElementById('leaderboardTableBody');
+      const podium = document.getElementById('podiumArea');
+      tableBody.innerHTML = '';
+      podium.innerHTML = '';
+
+      if (participants.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-slate-500">No participants recorded yet.</td></tr>`;
+        return;
+      }
+
+      participants.slice(0, 3).forEach((p, idx) => {
+        podium.innerHTML += `
+          <div class="p-3 rounded-2xl border border-amber-500/30 bg-clinical-surface flex flex-col items-center">
+            <span class="text-[10px] font-mono text-amber-400 font-bold">Rank #${idx + 1}</span>
+            <div class="font-black text-white text-xs mt-0.5 truncate max-w-[85px] sm:max-w-none">${p.name}</div>
+            <div class="text-[11px] font-mono font-bold text-amber-400">${p.coins} coins</div>
+          </div>
+        `;
+      });
+
+      participants.forEach((p, index) => {
+        const isCurrent = state.currentCandidate && state.currentCandidate.roll === p.roll;
+        tableBody.innerHTML += `
+          <tr class="${isCurrent ? 'bg-amber-500/10 border-l-2 border-amber-500 font-bold' : 'hover:bg-clinical-surface'} transition">
+            <td class="py-2.5 px-3 font-bold">${index + 1}</td>
+            <td class="py-2.5 px-3"><div class="font-bold text-white text-xs">${p.name} ${isCurrent ? '<span class="text-[9px] text-amber-400 font-mono">(You)</span>' : ''}</div></td>
+            <td class="py-2.5 px-3 font-mono text-slate-300">${p.roll}</td>
+            <td class="py-2.5 px-3 font-mono ${p.completed ? 'text-emerald-400' : 'text-amber-400'}">${p.completed ? 'Finished' : 'In Progress'}</td>
+            <td class="py-2.5 px-3 text-right font-extrabold text-amber-400 font-mono text-sm">${p.coins}</td>
+          </tr>
+        `;
+      });
+    }
+
+    function openLeaderboardModal() {
+      renderLeaderboardTable();
+      updateIndividualCandidateRank();
+      toggleModal('leaderboardModal', true);
+    }
+
+    function showAdminDashboard() {
+      document.getElementById('quizSimulationArea').classList.add('hidden');
+      document.getElementById('candidateLoginWall').classList.add('hidden');
+      document.getElementById('adminDashboardArea').classList.remove('hidden');
+      switchAdminTab('cases');
+      renderAdminCasesList();
+      renderWhitelistTable();
+      renderLiveParticipantsTable();
+      updateHostConnectedCount();
+    }
+
+    function exitAdminView() {
+      document.getElementById('adminDashboardArea').classList.add('hidden');
+      if (state.currentCandidate) {
+        document.getElementById('quizSimulationArea').classList.remove('hidden');
+      } else {
+        document.getElementById('candidateLoginWall').classList.remove('hidden');
+      }
+    }
+
+    function switchAdminTab(tabName) {
+      document.querySelectorAll('.adminSubView').forEach(el => el.classList.add('hidden'));
+      ['cases', 'create', 'roster', 'liveMonitor'].forEach(t => {
+        const btn = document.getElementById(`adminTabBtn-${t}`);
+        if (btn) btn.className = (t === tabName) ? 'px-4 py-2 border-b-2 border-amber-500 text-amber-400 font-bold' : 'px-4 py-2 border-b-2 border-transparent text-slate-400 hover:text-white';
+      });
+      document.getElementById(`adminView-${tabName}`).classList.remove('hidden');
+    }
+
+    function openAddCandidateModal() { toggleModal('addCandidateModal', true); }
+
+    function handleAddNewCandidate(e) {
+      e.preventDefault();
+      const roll = document.getElementById('newCandidateRoll').value.trim().toUpperCase();
+      const name = document.getElementById('newCandidateName').value.trim();
+      const batch = document.getElementById('newCandidateBatch').value.trim() || 'MBBS';
+
+      if (!state.whitelist.some(c => c.roll === roll)) {
+        state.whitelist.push({ roll, name, batch });
+        saveWhitelist();
+        renderWhitelistTable();
+        toggleModal('addCandidateModal', false);
+        
+        sendToNetwork({
+          type: 'WHITELIST_SYNC',
+          whitelist: state.whitelist
+        });
+
+        showToast(`Candidate ${roll} whitelisted and synced to all devices!`, 'success');
+        document.getElementById('newCandidateRoll').value = '';
+        document.getElementById('newCandidateName').value = '';
+      } else {
+        showToast('Roll Number already exists.', 'error');
+      }
+    }
+
+    function loadSampleWhitelistedCandidates() {
+      const sample = [
+        { roll: '1', name: 'Dr. Sneha Reddy', batch: 'MBBS 2023' },
+        { roll: '2', name: 'Dr. Harish Kumar', batch: 'MBBS 2023' },
+        { roll: 'AUR-101', name: 'Dr. Aryan Mehta', batch: 'MBBS 2022' },
+        { roll: 'AUR-102', name: 'Dr. Zara Khan', batch: 'MBBS 2022' },
+        { roll: 'AUR-103', name: 'Dr. Vikram Malhotra', batch: 'Intern' }
+      ];
+      sample.forEach(s => {
+        if (!state.whitelist.some(w => w.roll === s.roll)) state.whitelist.push(s);
+      });
+      saveWhitelist();
+      renderWhitelistTable();
+      sendToNetwork({ type: 'WHITELIST_SYNC', whitelist: state.whitelist });
+      showToast('Sample roster loaded and synced!', 'success');
+    }
+
+    function clearCandidateWhitelist() {
+      state.whitelist = [];
+      saveWhitelist();
+      renderWhitelistTable();
+      sendToNetwork({ type: 'WHITELIST_SYNC', whitelist: [] });
+      showToast('Candidate whitelist cleared.', 'info');
+    }
+
+    function renderWhitelistTable() {
+      const tbody = document.getElementById('whitelistTableBody');
+      tbody.innerHTML = '';
+      if (state.whitelist.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-slate-500">No candidates whitelisted yet.</td></tr>`;
+        return;
+      }
+      state.whitelist.forEach((c, idx) => {
+        tbody.innerHTML += `
+          <tr class="hover:bg-clinical-panel transition">
+            <td class="py-2 px-3 font-mono font-bold text-amber-400">${c.roll}</td>
+            <td class="py-2 px-3 font-medium text-white">${c.name}</td>
+            <td class="py-2 px-3 text-slate-400">${c.batch}</td>
+            <td class="py-2 px-3"><span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">Authorized</span></td>
+            <td class="py-2 px-3 text-right">
+              <button onclick="removeCandidateFromWhitelist(${idx})" class="text-rose-400 text-xs cursor-pointer"><i class="ph-bold ph-trash"></i></button>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    function removeCandidateFromWhitelist(index) {
+      state.whitelist.splice(index, 1);
+      saveWhitelist();
+      renderWhitelistTable();
+      sendToNetwork({ type: 'WHITELIST_SYNC', whitelist: state.whitelist });
+    }
+
+    function renderLiveParticipantsTable() {
+      const tbody = document.getElementById('liveParticipantsTableBody');
+      tbody.innerHTML = '';
+      const participants = state.liveParticipants
+        .filter(p => p.caseId === state.activeCaseId)
+        .sort((a, b) => b.coins - a.coins);
+
+      if (participants.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="py-4 text-center text-slate-500">Waiting for candidates to join...</td></tr>`;
+        return;
+      }
+
+      participants.forEach((p, idx) => {
+        tbody.innerHTML += `
+          <tr class="hover:bg-clinical-surface transition">
+            <td class="py-2.5 px-3 font-bold font-mono text-amber-400">#${idx + 1}</td>
+            <td class="py-2.5 px-3 font-bold text-white">${p.name}</td>
+            <td class="py-2.5 px-3 font-mono text-amber-400">${p.roll}</td>
+            <td class="py-2.5 px-3 font-mono">${p.unlockedCount} Labs</td>
+            <td class="py-2.5 px-3 font-bold text-amber-400 font-mono">${p.coins}</td>
+            <td class="py-2.5 px-3">
+              <span class="px-2 py-0.5 rounded ${p.completed ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'} text-[10px] font-bold">
+                ${p.completed ? 'Finished' : 'In Progress'}
+              </span>
+            </td>
+            <td class="py-2.5 px-3 font-mono text-slate-400">${p.duration}s</td>
+          </tr>
+        `;
+      });
+    }
+
+    function renderAdminCasesList() {
+      const container = document.getElementById('adminCasesList');
+      container.innerHTML = '';
+      state.cases.forEach((c) => {
+        const isActive = c.id === state.activeCaseId;
+        const card = document.createElement('div');
+        card.className = `p-4 rounded-2xl border ${isActive ? 'bg-amber-500/10 border-amber-500/60' : 'bg-clinical-panel border-clinical-border'} flex flex-col justify-between gap-3`;
+        card.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded ${isActive ? 'bg-amber-500 text-slate-950' : 'bg-clinical-surface text-slate-400'}">${isActive ? 'Active Broadcast' : 'Available'}</span>
+            </div>
+            <h4 class="text-sm font-bold text-white mt-2">${c.title}</h4>
+            <p class="text-xs text-slate-400 mt-1 line-clamp-2">${c.patient.chiefComplaint}</p>
+          </div>
+          <div class="pt-3 border-t border-clinical-border text-xs flex justify-between items-center">
+            <span class="text-slate-400">${c.investigations.length} Labs ${c.patient.imageUrl ? '• Image Attached' : ''}</span>
+            <div class="flex gap-2">
+              <button onclick="broadcastCaseActivation('${c.id}')" class="px-3 py-1.5 ${isActive ? 'bg-slate-700 text-slate-400' : 'bg-amber-500 text-slate-950 font-black'} rounded-lg cursor-pointer">
+                ${isActive ? 'Broadcasting' : 'Launch Case'}
+              </button>
+              ${state.cases.length > 1 ? `<button onclick="deleteCase('${c.id}')" class="p-1.5 rounded-lg bg-rose-950/40 text-rose-400 hover:bg-rose-900/60 cursor-pointer"><i class="ph-bold ph-trash"></i></button>` : ''}
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function deleteCase(caseId) {
+      if (state.cases.length <= 1) return;
+      state.cases = state.cases.filter(c => c.id !== caseId);
+      if (state.activeCaseId === caseId) state.activeCaseId = state.cases[0].id;
+      saveCases();
+      renderAdminCasesList();
+      showToast('Case removed from repository.', 'info');
+    }
+
+    function broadcastCaseActivation(caseId) {
+      state.activeCaseId = caseId;
+      localStorage.setItem('aureus_active_case_id', caseId);
+      const targetCase = getActiveCase();
+      sendToNetwork({
+        type: 'CASE_BROADCAST',
+        data: { caseId: targetCase.id, caseTitle: targetCase.title }
+      });
+      renderAdminCasesList();
+      renderCaseDataToUI();
+      showToast(`Case '${targetCase.title}' broadcast!`, 'success');
+    }
+
+    function broadcastEndCaseSignal() {
+      sendToNetwork({ type: 'END_CASE_SIGNAL' });
+      openLeaderboardModal();
+      showToast('Concluded case & revealed leaderboard.', 'info');
+    }
+
+    window.onload = function() {
+      addAuthorInvestigationRow();
+      initDefaultManagementAuthoringRows();
+      initNetworking();
+      renderWhitelistTable();
+
+      if (state.currentCandidate) {
+        initCandidateSession();
+      } else {
+        document.getElementById('candidateLoginWall').classList.remove('hidden');
+        document.getElementById('quizSimulationArea').classList.add('hidden');
+      }
+    };
+  </script>
+</body>
+</html>
